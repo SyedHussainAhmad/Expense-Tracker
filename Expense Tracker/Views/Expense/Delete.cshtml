@@ -1,0 +1,24 @@
+﻿@{
+    ViewData["Title"] = "Delete Expense";
+}
+
+<div class="container mt-5">
+    <h1 class="text-gradient text-center mb-5">Are You Sure?</h1>
+
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card card-hover shadow-lg p-4">
+                <h2 class="text-light">Expense Details</h2>
+                <p><strong>Name:</strong> @Model.Name</p>
+                <p><strong>Amount:</strong> @Model.Amount</p>
+                <p><strong>Category:</strong> @Model.Category</p>
+                <p><strong>Date:</strong> @Model.Date.ToString("MM/dd/yyyy")</p>
+
+                <form method="post">
+                    <button type="submit" class="btn btn-danger btn-block">Delete Expense</button>
+                </form>
+                <a href="/Expense/Index" class="btn btn-light btn-block mt-2">Cancel</a>
+            </div>
+        </div>
+    </div>
+</div>

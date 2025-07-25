@@ -1,0 +1,37 @@
+﻿@{
+    ViewData["Title"] = "Reports";
+}
+
+<div class="container mt-5">
+    <h1 class="text-gradient text-center mb-5">Available Reports</h1>
+
+    <div class="row">
+        <div class="col-md-12 text-right mb-4">
+            <a href="/Report/GenerateReport" class="btn btn-gradient">Generate Report</a>
+        </div>
+    </div>
+
+    <table class="table table-striped text-light">
+        <thead>
+            <tr>
+                <th>Report Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Monthly Expense Report</td>
+                <td>
+                    <a href="/Report/GenerateReport" class="btn btn-warning btn-sm">Generate</a>
+                </td>
+            </tr>
+            <tr>
+                <td>Yearly Expense Report</td>
+                <td>
+                    <a href="/Report/GenerateReport" class="btn btn-warning btn-sm">Generate</a>
+                </td>
+            </tr>
+            <!-- Add more reports as needed -->
+        </tbody>
+    </table>
+</div>

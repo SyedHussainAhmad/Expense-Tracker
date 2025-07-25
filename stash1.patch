@@ -1,0 +1,2084 @@
+diff --git a/WayBack_Machine_Clone/Controllers/AdminController.cs b/WayBack_Machine_Clone/Controllers/AdminController.cs
+index 9a0fbda..01703d5 100644
+--- a/WayBack_Machine_Clone/Controllers/AdminController.cs
++++ b/WayBack_Machine_Clone/Controllers/AdminController.cs
+@@ -6,6 +6,7 @@ using WayBack_Machine_Clone.Areas.Identity.Data;
+ using Wayback_Machine_Clone.Models;
+ using Microsoft.EntityFrameworkCore;
+ using WayBack_Machine_Clone.Models;
++using System.Text.RegularExpressions;
+ 
+ 
+ namespace Wayback_Machine_Clone.Controllers
+@@ -60,15 +61,46 @@ namespace Wayback_Machine_Clone.Controllers
+         public IActionResult CreatePost() => View();
+ 
+         [HttpPost]
+-        public IActionResult CreatePost(Post post)
++        public IActionResult CreatePost(
++          string title,
++          string content,
++          string phoneNumber,
++          string? hint, // Optional
++          string? category // Optional
++      )
+         {
+-            if (ModelState.IsValid)
++            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(content) || string.IsNullOrWhiteSpace(phoneNumber))
+             {
+-                _context.Posts.Add(post);
+-                _context.SaveChanges();
+-                return RedirectToAction(nameof(ManagePosts));
++                ModelState.AddModelError("", "Title, Content, and Phone Number are required.");
++                return View();
+             }
+-            return View(post);
++            if (string.IsNullOrEmpty(category))
++            {
++                // Return an error or set a default category value
++                category = "Default Category"; // or handle the error accordingly
++            }
++
++            // Generate URL based on the title
++            string url = string.IsNullOrWhiteSpace(title)
++                ? string.Empty
++                : Regex.Replace(title.Replace(" ", "-").ToLower(), "-{2,}", "-");
++
++            // Create the Post object manually
++            var post = new Post
++            {
++                Title = title,
++                Content = content,
++                PhoneNumber = phoneNumber,
++                Hint = hint,
++                Category = category,
++                Url = url
++            };
++
++            // Save the post to the database
++            _context.Posts.Add(post);
++            _context.SaveChanges();
++
++            return RedirectToAction(nameof(ManagePosts));
+         }
+ 
+         // Edit a post
+@@ -211,26 +243,53 @@ namespace Wayback_Machine_Clone.Controllers
+         public IActionResult ApproveComment(int commentId)
+         {
+             var comment = _context.Comments.Find(commentId);
++            var flag = comment.ParentCommentId;
+             if (comment != null)
+             {
+                 comment.IsApproved = true;
+                 _context.SaveChanges();
++                // Store success message in TempData
++                if (flag == null)
++                {
++                    TempData["SuccessMessage"] = "The comment has been Approved successfully.";
++                }
++                else
++                {
++                    TempData["SuccessMessage"] = "The Reply has been Approved successfully.";
++                }
+             }
+-            return RedirectToAction(nameof(ApproveComments));
++
++            if (flag == null)
++            {
++                return RedirectToAction(nameof(ApproveComments));
++
++            }
++            return RedirectToAction(nameof(ApproveReplies));
++
+         }
+ 
+         [HttpPost]
+         public IActionResult DisapproveComment(int commentId)
+         {
+             var comment = _context.Comments.Find(commentId);
++            dynamic flag = null;
++
+             if (comment != null)
+             {
++                flag = comment.ParentCommentId;
+                 // Delete the comment from the database
+                 _context.Comments.Remove(comment);
+                 _context.SaveChanges();
+ 
+                 // Store success message in TempData
+-                TempData["SuccessMessage"] = "The comment has been deleted successfully.";
++                if (flag == null)
++                {
++                    TempData["SuccessMessage"] = "The comment has been deleted successfully.";
++                }
++                else
++                {
++                    TempData["SuccessMessage"] = "The Reply has been deleted successfully.";
++                }
+             }
+             else
+             {
+@@ -238,8 +297,12 @@ namespace Wayback_Machine_Clone.Controllers
+                 TempData["ErrorMessage"] = "Comment not found.";
+             }
+ 
+-            // Redirect to the ApproveComments page
+-            return RedirectToAction(nameof(ApproveComments));
++            if (flag == null)
++            {
++                return RedirectToAction(nameof(ApproveComments));
++
++            }
++            return RedirectToAction(nameof(ApproveReplies));
+         }
+ 
+         //Manage Account
+diff --git a/WayBack_Machine_Clone/Controllers/HomeController.cs b/WayBack_Machine_Clone/Controllers/HomeController.cs
+index 737ba30..46311c9 100644
+--- a/WayBack_Machine_Clone/Controllers/HomeController.cs
++++ b/WayBack_Machine_Clone/Controllers/HomeController.cs
+@@ -3,6 +3,8 @@ using System.Linq;
+ using WayBack_Machine_Clone.Areas.Identity.Data;
+ using Wayback_Machine_Clone.Models;
+ using Microsoft.AspNetCore.Authorization;
++using System.Net.Mail;
++using System.Net;
+ 
+ 
+ public class HomeController : Controller
+@@ -14,6 +16,7 @@ public class HomeController : Controller
+         _context = context;
+     }
+ 
++
+     // Home Page - Fetch and display posts for different sections
+     public IActionResult Index()
+     {
+@@ -66,6 +69,9 @@ public class HomeController : Controller
+         _context.Contacts.Add(contact);
+         _context.SaveChanges();
+ 
++        SendEmailNotification(name, email, telephone, company, suggestion, feedback);
++
++
+         // Use TempData to store the success message
+         TempData["SuccessMessage"] = "Thank you for your feedback!";
+         return RedirectToAction("Contact");
+@@ -78,12 +84,51 @@ public class HomeController : Controller
+         ViewBag.Message = TempData["SuccessMessage"];
+         return View();
+     }
+-
+-
+-
+-
+     // Static pages
+     public IActionResult About() => View();
+     public IActionResult Comment_Policy() => View();
+     public IActionResult Privacy() => View();
++
++    // Helper method to send email notification
++    private void SendEmailNotification(string name, string email, string telephone, string company, string suggestion, string feedback)
++    {
++        // Email settings
++        string toEmail = "estrand03@gmail.com"; // Replace with the correct email address
++        string subject = "New Contact Form Submission of CSNDB";
++        string body = $@"
++        <h2>New Contact Form Submission</h2>
++        <p><strong>Name:</strong> {name}</p>
++        <p><strong>Email:</strong> {email}</p>
++        <p><strong>Telephone:</strong> {telephone}</p>
++        <p><strong>Company:</strong> {company}</p>
++        <p><strong>Suggestion:</strong> {suggestion}</p>
++        <p><strong>Feedback:</strong> {feedback}</p>";
++
++        // Use SmtpClient to send the email
++        using (var smtp = new SmtpClient("smtp.gmail.com")) // Replace with your SMTP server
++        {
++            smtp.Port = 587; // Replace with your SMTP port
++            smtp.Credentials = new NetworkCredential("hsyed9877@gmail.com", "wkhx bobh cubh fyal"); // Replace with your credentials
++            smtp.EnableSsl = true;
++
++            var mailMessage = new MailMessage
++            {
++                From = new MailAddress("hsyed9877@gmail.com"), // Replace with your sender email
++                Subject = subject,
++                Body = body,
++                IsBodyHtml = true
++            };
++            mailMessage.To.Add(toEmail);
++
++            try
++            {
++                smtp.Send(mailMessage);
++            }
++            catch (Exception ex)
++            {
++                // Log or handle the error
++                Console.WriteLine($"Failed to send email: {ex.Message}");
++            }
++        }
++    }
+ }
+diff --git a/WayBack_Machine_Clone/Controllers/PostController.cs b/WayBack_Machine_Clone/Controllers/PostController.cs
+index f3c7067..85d5305 100644
+--- a/WayBack_Machine_Clone/Controllers/PostController.cs
++++ b/WayBack_Machine_Clone/Controllers/PostController.cs
+@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
+ using Microsoft.AspNetCore.Mvc;
+ using Microsoft.Data.SqlClient;
+ using Microsoft.EntityFrameworkCore;
++using System.Text.RegularExpressions;
+ using System.Xml.Linq;
+ using Wayback_Machine_Clone.Models;
+ using WayBack_Machine_Clone.Areas.Identity.Data;
+@@ -17,47 +18,34 @@ namespace Wayback_Machine_Clone.Controllers
+         {
+             _context = context;
+         }
+-        public async Task<IActionResult> Index(string title, int id, string sortOrder = "Newest")
++        public async Task<IActionResult> Index(string url, string sortOrder = "Newest")
+         {
+-            // Construct the friendly URL path
+-            var friendlyUrl = $"/{title}";
+ 
+-            // Get the current request path
+-            var currentPath = HttpContext.Request.Path.Value;
+ 
+-            // Redirect only if the current path is not already the friendly URL
+-            if (!string.IsNullOrWhiteSpace(title) && !currentPath.Equals(friendlyUrl, StringComparison.OrdinalIgnoreCase))
+-            {
+-                HttpContext.Session.SetString("PostId", id.ToString());
+-                HttpContext.Session.SetString("SortOrder", sortOrder);
++            //// Get the current request path
++            //var currentPath = HttpContext.Request.Path.Value;
+ 
+-                return RedirectToRoute("post_title", new { title });
+-            }
+-            else
+-            {
+-                var postIdString = HttpContext.Session.GetString("PostId");
+-                if (string.IsNullOrEmpty(postIdString))
+-                {
+-                    return BadRequest("PostId is missing from the session.");
+-                }
+-
+-                if (!int.TryParse(postIdString, out id))
+-                {
+-                    return BadRequest("Invalid PostId in the session.");
+-                }
+-
+-                sortOrder = HttpContext.Session.GetString("SortOrder") ?? "Newest"; // Default to "Newest"
+-            }
++            //// Redirect only if the current path is not already the friendly URL
++            //if (!string.IsNullOrWhiteSpace(url) &&
++            //    !currentPath.Equals($"/{url}", StringComparison.OrdinalIgnoreCase))
++            //{
++            //    HttpContext.Session.SetString("SortOrder", sortOrder);
++
++            //    return RedirectToRoute("post_title", new { url = url });
++            //}
++            //else
++            //{
++            //    sortOrder = HttpContext.Session.GetString("SortOrder") ?? "Newest"; // Default to "Newest"
++            //}
+ 
+-            if (id == 0) return NotFound();
+ 
+             var post = await _context.Posts
+-                .FirstOrDefaultAsync(m => m.Id == id);
++                .FirstOrDefaultAsync(m => m.Url == url);
+ 
+             if (post != null) // Ensure the post exists
+             {
+                 var comments = await _context.Comments
+-                    .Where(c => c.PostId == id && c.ParentCommentId == null && c.IsApproved == true)
++                    .Where(c => c.PostId == post.Id && c.ParentCommentId == null && c.IsApproved == true)
+                     .ToListAsync();
+ 
+                 post.Comments = comments; // Assign the filtered comments to the post
+@@ -105,61 +93,47 @@ namespace Wayback_Machine_Clone.Controllers
+             return PartialView("_CommentTableRows", comments);
+         }
+ 
+-
+-        public async Task<IActionResult> LoadReplies(int commentId, int page = 1, int pageSize = 10)
+-        {
+-            var replies = await _context.Comments
+-                .Where(c => c.ParentCommentId == commentId && c.IsApproved)
+-                .OrderBy(c => c.CreatedAt)
+-                .Skip((page - 1) * pageSize)
+-                .Take(pageSize)
+-                .ToListAsync();
+-
+-            // Return partial view with the fetched replies
+-            return PartialView("_ReplyTableRows", replies);
+-        }
+-
+-        public async Task<IActionResult> Comment(int Id)
++        // Adding a new comment to a post
++        [HttpPost]
++        [HttpPost]
++        public async Task<IActionResult> AddComment(int postId, int Rating, string content, string Name, string Email)
+         {
++            // Fetch the associated post using PostId
++            var post = await _context.Posts.FirstOrDefaultAsync(p => p.Id == postId);
+ 
+-            if (Id == null) return NotFound();
+-            // Retrieve the specific comment by ID
+-            var comment = await _context.Comments
+-                .FirstOrDefaultAsync(m => m.Id == Id);
+-
+-            if (comment == null)
++            if (post == null)
+             {
+-                Console.WriteLine("No comment found with Id " + Id);
+-                return NotFound();
++                return NotFound("Associated post not found.");
+             }
+ 
+-            var post = await _context.Posts
+-                .FirstOrDefaultAsync(m => m.Id == comment.PostId);
++            // Validate comment content
++            if (string.IsNullOrWhiteSpace(content))
++            {
++                ModelState.AddModelError("Content", "Content is required.");
++                return RedirectToAction("Index", new { url = post.Url });
++            }
+ 
+-            comment.post = post;
+ 
+-            // Now, retrieve the replies to this comment (comments where ParentCommentId == comment.Id)
+-            var replies = await _context.Comments
+-                .Where(m => m.ParentCommentId == Id && m.IsApproved)
+-                .ToListAsync();
++            // Extract the first word from the post title for URL generation
++            var firstWordOfPostTitle = post.Title.Split(' ', StringSplitOptions.RemoveEmptyEntries)
++                .FirstOrDefault()?.ToLower() ?? string.Empty;
+ 
+-            // Assign the replies to the Replies property of the comment
+-            comment.Replies = replies;
++            // Use a portion of the comment content to generate a friendly URL
++            var friendlyContent = string.IsNullOrWhiteSpace(content)
++                ? string.Empty
++                : Regex.Replace(
++                    content.Split(' ', StringSplitOptions.RemoveEmptyEntries) // Split content into words
++                        .Take(10) // Take the first 10 words
++                        .Aggregate((a, b) => a + " " + b) // Combine back into a string
++                        .Replace(" ", "-").ToLower(),    // Replace spaces with hyphens
++                    "-{2,}", "-");                     // Replace multiple hyphens with a single one
+ 
+-            return View(comment);  // Pass the comment and its replies to the view
+-        }
++            Random random = new Random();
++            int uniqueNumber = random.Next(10, 10000);  // Generates a 2 to 4 digit number
++            Console.WriteLine(uniqueNumber);
+ 
+-
+-        // Adding a new comment to a post
+-        [HttpPost]
+-        [HttpPost]
+-        public async Task<IActionResult> AddComment(int postId, int Rating, string content, string Name, string Email)
+-        {
+-            if (string.IsNullOrWhiteSpace(content))
+-            {
+-                ModelState.AddModelError("Content", "Content is required.");
+-                return RedirectToAction("Index", new { id = postId });
+-            }
++            // Construct the friendly URL
++            var commentUrl = $"cm-{firstWordOfPostTitle}-{friendlyContent}-{uniqueNumber}"; // Use GUID for uniqueness
+ 
+             // Create a new comment instance with the form data
+             var comment = new Comment
+@@ -171,48 +145,20 @@ namespace Wayback_Machine_Clone.Controllers
+                 ParentCommentId = null,
+                 rating = Rating,
+                 CreatedAt = DateTime.Now,
+-                IsApproved = false  // Admin approval is required
++                IsApproved = false,  // Admin approval is required
++                Url = commentUrl     // Set the generated URL
+             };
+ 
+             // Add the comment to the database context
+             _context.Comments.Add(comment);
+             await _context.SaveChangesAsync();
++
++            // Add success message to TempData for displaying it on the next page
+             TempData["SuccessMessage"] = "Your comment has been submitted successfully and is awaiting approval.";
+ 
+-            var post = await _context.Posts
+-                .FirstOrDefaultAsync(m => m.Id == postId);
+             // Redirect back to the post details page after saving the comment
+-            return RedirectToRoute("post_title", new { post.Title });
++            return RedirectToRoute("post_title", new { url = post.Url }); // Redirect using the friendly URL
+         }
+ 
+-        [HttpPost]
+-        public async Task<IActionResult> AddReply(int postId, string content, string Name, string Email, int parentCommentId)
+-        {
+-            if (string.IsNullOrWhiteSpace(content))
+-            {
+-                ModelState.AddModelError("Content", "Content is required.");
+-                return RedirectToAction("Index", new { id = postId });
+-            }
+-
+-            // Create a new comment instance with the form data
+-            var comment = new Comment
+-            {
+-                Content = content,
+-                Nickname = Name,
+-                Email = Email,
+-                PostId = postId,
+-                ParentCommentId = parentCommentId,
+-                CreatedAt = DateTime.Now,
+-                IsApproved = false  // Admin approval is required
+-            };
+-
+-            // Add the comment to the database context
+-            _context.Comments.Add(comment);
+-            await _context.SaveChangesAsync();
+-            TempData["SuccessMessage"] = "Your Reply has been submitted successfully and is awaiting approval.";
+-
+-            // Redirect back to the post details page after saving the comment
+-            return RedirectToAction("Comment", new { id = parentCommentId });
+-        }
+     }
+ }
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Migrations/ApplicationDbContextModelSnapshot.cs b/WayBack_Machine_Clone/Migrations/ApplicationDbContextModelSnapshot.cs
+index f5f7964..fc6aab1 100644
+--- a/WayBack_Machine_Clone/Migrations/ApplicationDbContextModelSnapshot.cs
++++ b/WayBack_Machine_Clone/Migrations/ApplicationDbContextModelSnapshot.cs
+@@ -17,7 +17,7 @@ namespace WayBack_Machine_Clone.Migrations
+         {
+ #pragma warning disable 612, 618
+             modelBuilder
+-                .HasAnnotation("ProductVersion", "8.0.10")
++                .HasAnnotation("ProductVersion", "8.0.11")
+                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
+ 
+             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
+@@ -257,6 +257,10 @@ namespace WayBack_Machine_Clone.Migrations
+                     b.Property<int>("PostId")
+                         .HasColumnType("int");
+ 
++                    b.Property<string>("Url")
++                        .IsRequired()
++                        .HasColumnType("longtext");
++
+                     b.Property<double>("rating")
+                         .HasColumnType("double");
+ 
+@@ -351,6 +355,11 @@ namespace WayBack_Machine_Clone.Migrations
+                     b.Property<DateTime?>("UpdatedAt")
+                         .HasColumnType("datetime(6)");
+ 
++                    b.Property<string>("Url")
++                        .IsRequired()
++                        .HasMaxLength(200)
++                        .HasColumnType("varchar(200)");
++
+                     b.Property<double>("rating")
+                         .HasColumnType("double");
+ 
+diff --git a/WayBack_Machine_Clone/Models/Comment.cs b/WayBack_Machine_Clone/Models/Comment.cs
+index e78701c..f92b81e 100644
+--- a/WayBack_Machine_Clone/Models/Comment.cs
++++ b/WayBack_Machine_Clone/Models/Comment.cs
+@@ -11,6 +11,8 @@ namespace Wayback_Machine_Clone.Models
+         [Required]
+         public string Content { get; set; }  // Text content of the comment
+ 
++        [Required]
++        public string Url { get; set; }  // Text content of the comment
+         public string Nickname { get; set; } 
+ 
+         public string Email { get; set; }  
+diff --git a/WayBack_Machine_Clone/Models/Post.cs b/WayBack_Machine_Clone/Models/Post.cs
+index 5fa8004..da47426 100644
+--- a/WayBack_Machine_Clone/Models/Post.cs
++++ b/WayBack_Machine_Clone/Models/Post.cs
+@@ -13,9 +13,12 @@ namespace Wayback_Machine_Clone.Models
+         public string Title { get; set; }  // Title of the post
+ 
+         [Required]
+-        public string Content  { get; set; }  // Main content of the post
++        [StringLength(200)]
++        public string Url { get; set; }  // Url of the post
+ 
+         [Required]
++        public string Content  { get; set; }  // Main content of the post
++
+         public string Category { get; set; }  // Main content of the post
+ 
+         public DateTime CreatedAt { get; set; } = DateTime.Now;  // Timestamp for post creation
+diff --git a/WayBack_Machine_Clone/Program.cs b/WayBack_Machine_Clone/Program.cs
+index cfdb165..2a571ed 100644
+--- a/WayBack_Machine_Clone/Program.cs
++++ b/WayBack_Machine_Clone/Program.cs
+@@ -66,13 +66,6 @@ namespace WayBack_Machine_Clone
+             // Define custom routes for your application
+             app.UseEndpoints(endpoints =>
+             {
+-
+-                // Custom route for friendly comment titles
+-                endpoints.MapControllerRoute(
+-                    name: "comment",
+-                    pattern: "/Comments/{id}",
+-                    defaults: new { controller = "Post", action = "Comment" });
+-
+                 // For Contact
+                 endpoints.MapControllerRoute(
+                     name: "contact",
+@@ -80,6 +73,9 @@ namespace WayBack_Machine_Clone
+                     defaults: new { controller = "Home", action = "Contact" }
+                 );
+ 
++
++
++
+                 // For Privacy
+                 endpoints.MapControllerRoute(
+                     name: "privacy",
+@@ -109,12 +105,6 @@ namespace WayBack_Machine_Clone
+                     defaults: new { controller = "Search", action = "Search" }
+                 );
+ 
+-                // Custom route for friendly post titles
+-                endpoints.MapControllerRoute(
+-                    name: "post_title",
+-                    pattern: "{title}",
+-                    defaults: new { controller = "Post", action = "Index" });
+-
+                 // Custom route for SearchController (for alphabet filter)
+                 endpoints.MapControllerRoute(
+                     name: "search_alphabet",
+diff --git a/WayBack_Machine_Clone/Views/Admin/CreatePost.cshtml b/WayBack_Machine_Clone/Views/Admin/CreatePost.cshtml
+index 0fa0a87..c33c4ee 100644
+--- a/WayBack_Machine_Clone/Views/Admin/CreatePost.cshtml
++++ b/WayBack_Machine_Clone/Views/Admin/CreatePost.cshtml
+@@ -15,8 +15,13 @@
+ 
+     <div class="form-group">
+         <label asp-for="Content"></label>
+-        <textarea asp-for="Content" class="form-control"></textarea>
++        <textarea id="content" asp-for="Content" class="form-control"></textarea>
+         <span asp-validation-for="Content" class="text-danger"></span>
++        <div class="mt-2">
++            <!-- Buttons for text formatting -->
++            <button type="button" class="btn btn-secondary btn-sm" onclick="addBoldText()">Bold</button>
++            <button type="button" class="btn btn-secondary btn-sm" onclick="addNewLine()">New Line</button>
++        </div>
+     </div>
+ 
+     <div class="form-group">
+@@ -32,7 +37,7 @@
+     </div>
+ 
+     <div class="form-group">
+-        <label>Category</label>
++        <label>Category (Optional)</label>
+         <div>
+             <input type="radio" asp-for="Category" name="Category" value="MostViewed" /> Most Viewed
+             <input type="radio" asp-for="Category" name="Category" value="Trending" /> Trending
+@@ -42,4 +47,49 @@
+     </div>
+ 
+     <button type="submit" class="btn btn-primary">Create Post</button>
+-</form>
+\ No newline at end of file
++</form>
++
++
++@section Script
++{
++    <script>
++        // Function to add bold text tags
++        function addBoldText() {
++            const contentField = document.getElementById("content");
++            const selectedText = contentField.value.substring(contentField.selectionStart, contentField.selectionEnd);
++            const before = contentField.value.substring(0, contentField.selectionStart);
++            const after = contentField.value.substring(contentField.selectionEnd);
++
++            // Add <b> tags around selected text or insert empty <b></b> if no text is selected
++            const boldText = selectedText ? `<b>${selectedText}</b>` : `<b></b>`;
++            contentField.value = before + boldText + after;
++
++            // Place the cursor inside the bold tags if no text was selected
++            if (!selectedText) {
++                const cursorPos = before.length + 3; // Place after opening <b>
++                contentField.selectionStart = cursorPos;
++                contentField.selectionEnd = cursorPos;
++            }
++
++            contentField.focus();
++        }
++
++        // Function to add new line tag
++        function addNewLine() {
++            const contentField = document.getElementById("content");
++            const cursorPos = contentField.selectionStart;
++            const before = contentField.value.substring(0, cursorPos);
++            const after = contentField.value.substring(cursorPos);
++
++            // Add <br></br> tag at the cursor position
++            contentField.value = before + "<br></br>" + after;
++
++            // Place the cursor after the new line tag
++            const newCursorPos = cursorPos + 9; // Length of <br></br>
++            contentField.selectionStart = newCursorPos;
++            contentField.selectionEnd = newCursorPos;
++
++            contentField.focus();
++        }
++    </script>
++}
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Admin/Dashboard.cshtml b/WayBack_Machine_Clone/Views/Admin/Dashboard.cshtml
+index 093a266..3bad8e2 100644
+--- a/WayBack_Machine_Clone/Views/Admin/Dashboard.cshtml
++++ b/WayBack_Machine_Clone/Views/Admin/Dashboard.cshtml
+@@ -51,6 +51,6 @@
+         <a href="@Url.Action("CreatePost", "Admin")" class="btn btn-success w-100">Create Post</a>
+     </div>
+     <div class="col-md-4">
+-        <a href="@Url.Action("ManageAccount", "Admin")" class="btn btn-success w-100">Manage Account</a>
++        <a href="@Url.Action("ManageAccount", "Admin")" class="btn btn-primary w-100">Manage Account</a>
+     </div>
+ </div>
+diff --git a/WayBack_Machine_Clone/Views/Admin/EditPost.cshtml b/WayBack_Machine_Clone/Views/Admin/EditPost.cshtml
+index 14339d3..742a0a8 100644
+--- a/WayBack_Machine_Clone/Views/Admin/EditPost.cshtml
++++ b/WayBack_Machine_Clone/Views/Admin/EditPost.cshtml
+@@ -52,12 +52,12 @@
+                 <label for="Trending" class="form-check-label">Trending</label>
+             </div>
+             <div class="form-check form-check-inline">
+-                <input type="radio" asp-for="Category" value="Most Viewed" id="MostViewed" class="form-check-input" />
++                <input type="radio" asp-for="Category" value="MostViewed" id="MostViewed" class="form-check-input" />
+                 <label for="MostViewed" class="form-check-label">Most Viewed</label>
+             </div>
+             <div class="form-check form-check-inline">
+-                <input type="radio" asp-for="Category" value="Latest Addition" id="LatestAddition" class="form-check-input" />
+-                <label for="LatestAddition" class="form-check-label">Latest Addition</label>
++                <input type="radio" asp-for="Category" value="LatestAdditions" id="LatestAdditions class="form-check-input" />
++                <label for="LatestAdditions" class="form-check-label">Latest Additions</label>
+             </div>
+         </div>
+ 
+diff --git a/WayBack_Machine_Clone/Views/Admin/_Layout.cshtml b/WayBack_Machine_Clone/Views/Admin/_Layout.cshtml
+index 759bfef..a757082 100644
+--- a/WayBack_Machine_Clone/Views/Admin/_Layout.cshtml
++++ b/WayBack_Machine_Clone/Views/Admin/_Layout.cshtml
+@@ -7,14 +7,15 @@
+     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+     <link href="~/css/site.css" rel="stylesheet" />
+     <link href="~/css/search.css" rel="stylesheet" />
+-
++    <!-- Font Awesome CDN -->
++    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" integrity="sha384-k6RqeWeci5ZR/Lv4MR0sA0FfDOM2tHki6l4p6LAslgDRFF56P3OhuPiUtVwzCTaA" crossorigin="anonymous">
+ 
+ 
+ </head>
+ <body>
+     <partial name="_Header">
+-        <div class="d-flex flex-column flex-md-row align-items-center pb-3 mt-3 mb-4 border-bottom bg-light shadow-sm">
++                <div class="d-flex flex-column flex-md-row align-items-center pb-3 mt-3 mb-4 border-bottom bg-light shadow-sm">
+             <div class="container">
+                 <!-- Logo and Title -->
+                 <div class="d-flex justify-content-center align-items-center">
+@@ -31,11 +32,12 @@
+                 </div>
+             </div>
+         </div>
++    <!-- Main Content Section -->
++    <div class="content">
+ 
+-        
+         <!-- Body Section -->
+-        <section style="display: flex; justify-content:center; min-height:45vh">
+-            <div style="width:70%">
++        <section class="d-flex justify-content-center">
++            <div class="body-div">
+                 @RenderBody() <!-- Renders the main content of the page -->
+             </div>
+         </section>
+@@ -47,11 +49,17 @@
+     @RenderSection("Script", required: false)
+ 
+     <script>
+-        function toggleAdvanced() {
+-            const advancedOptions = document.getElementById("advanced-options");
+-            advancedOptions.style.display = advancedOptions.style.display === "none" ? "block" : "none";
+-                }
++
++        document.addEventListener('DOMContentLoaded', function () {
++        const navbarToggle = document.getElementById('navbar-toggle');
++        const navbarMobile = document.getElementById('navbar-mobile');
++
++        navbarToggle.addEventListener('click', function () {
++            navbarMobile.classList.toggle('active'); // Toggle the mobile navbar
++        });
++        });
+     </script>
++
+     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+ </body>
+diff --git a/WayBack_Machine_Clone/Views/Home/Index.cshtml b/WayBack_Machine_Clone/Views/Home/Index.cshtml
+index ef59c04..643c95e 100644
+--- a/WayBack_Machine_Clone/Views/Home/Index.cshtml
++++ b/WayBack_Machine_Clone/Views/Home/Index.cshtml
+@@ -21,13 +21,13 @@
+         <th>Trending</th>
+     </tr>
+     <tr>
+-        @for (int i = 0; i < Math.Min(25, Math.Max(Model.MostViewed.Count, Math.Max(Model.LatestAdditions.Count, Model.Trending.Count))); i++)
++        @for (int i = 0; i < Math.Min(10, Math.Max(Model.MostViewed.Count, Math.Max(Model.LatestAdditions.Count, Model.Trending.Count))); i++)
+         {
+         <tr>
+             <td>
+                     @if (i < Model.MostViewed.Count)
+                     {
+-                    <a style="color:black" href="Post/Index?title=@Model.MostViewed[i].Title&Id=@Model.MostViewed[i].Id">@Model.MostViewed[i].Title</a>
++                    <a class = "home-category" href="Post/Index?url=@Model.MostViewed[i].Url">@Model.MostViewed[i].Title.Split(' ')[0]</a>
+                     }
+                     else
+                     {
+@@ -37,7 +37,7 @@
+             <td>
+                     @if (i < Model.LatestAdditions.Count)
+                     {
+-                    <a style="color:black" href="Post/Index?title=@Model.LatestAdditions[i].Title&Id=@Model.LatestAdditions[i].Id">@Model.LatestAdditions[i].Title</a>
++                    <a class = "home-category" href="Post/Index?url=@Model.LatestAdditions[i].Url">@Model.LatestAdditions[i].Title.Split(' ')[0]</a>
+                     }
+                     else
+                     {
+@@ -47,7 +47,7 @@
+             <td>
+                     @if (i < Model.Trending.Count)
+                     {
+-                    <a style="color:black" href="Post/Index?title=@Model.Trending[i].Title&Id=@Model.Trending[i].Id">@Model.Trending[i].Title</a>
++                    <a class = "home-category" href="Post/Index?url=@Model.Trending[i].Url">@Model.Trending[i].Title.Split(' ')[0]</a>
+                     }
+                     else
+                     {
+diff --git a/WayBack_Machine_Clone/Views/Post/Comment.cshtml b/WayBack_Machine_Clone/Views/Post/Comment.cshtml
+deleted file mode 100644
+index 8d3d03c..0000000
+--- a/WayBack_Machine_Clone/Views/Post/Comment.cshtml
++++ /dev/null
+@@ -1,71 +0,0 @@
+-﻿@model Wayback_Machine_Clone.Models.Comment
+-
+-@{
+-    ViewData["Title"] = "Comments for " + Model.post.Title;
+-    var successMessage = TempData["SuccessMessage"] as string;
+-}
+-
+-@if (!string.IsNullOrEmpty(successMessage))
+-{
+-    <div class="alert alert-success">
+-        @successMessage
+-    </div>
+-}
+-
+-<div class="post-section">
+-   
+-<partial name="_CommentDetails" model="@Model"></partial>
+-<partial name="_RepliesTable" model="@Model"></partial>
+-<partial name="_ReplyForm" model="@Model"></partial>
+-
+-
+-</div>
+-<br>
+-<hr>
+-<br>
+-<br>
+-
+-
+-@section Script
+-{
+-    <script>
+-        // JavaScript for star rating functionality
+-        document.querySelectorAll('.star').forEach(star => {
+-            star.addEventListener('click', function () {
+-                const rating = this.getAttribute('data-rating');
+-                document.getElementById('rating').value = rating;
+-
+-                // Highlight stars up to the clicked one
+-                document.querySelectorAll('.star').forEach(s => {
+-                    s.classList.remove('checked');
+-                    if (s.getAttribute('data-rating') <= rating) {
+-                        s.classList.add('checked');
+-                    }
+-                });
+-            });
+-        });
+-    </script>
+-
+-    <script>
+-        let repliesPage = 1; // Initialize page counter for replies
+-
+-        document.getElementById('load-more-replies').addEventListener('click', function () {
+-            const commentId = this.getAttribute('data-comment-id');
+-            repliesPage++; // Increment the page number
+-
+-            fetch(`/Post/LoadReplies?commentId=${commentId}&page=${repliesPage}`)
+-                .then(response => {
+-                    console.log("Replies response status:", response.status); // Debug
+-                    return response.text();
+-                })
+-                .then(data => {
+-                    const container = document.getElementById('replies-container');
+-                    container.innerHTML += data; // Append new rows to replies table
+-                    console.log("Replies loaded successfully."); // Debug
+-                })
+-                .catch(err => console.error("Error loading replies:", err));
+-        });
+-    </script>
+-
+-
+-}
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Post/_AddCommentForm.cshtml b/WayBack_Machine_Clone/Views/Post/_AddCommentForm.cshtml
+index ce0c8e2..44f80e9 100644
+--- a/WayBack_Machine_Clone/Views/Post/_AddCommentForm.cshtml
++++ b/WayBack_Machine_Clone/Views/Post/_AddCommentForm.cshtml
+@@ -3,9 +3,9 @@
+ 
+ <!-- Comment Form -->
+ <div class="comment-form">
+-    <h4 style="font-size:1.6em; font-weight:bold">Add a comment:</h4>
+-    <h4 style="font-size:1.6em; font-weight:bold">A rating is optional. Please click on the number of stars to award for the company's customer service. Please do not enter personal information into the comments.</h4>
+-    <h4 style="font-size:1.6em; font-weight:bold">(Comments will be added pending approval by the webmaster.)</h4>
++    <h4 style="font-size:1.2em; font-weight:bold">Add a comment:</h4>
++    <h4 style="font-size:1.2em; font-weight:bold">A rating is optional. Please click on the number of stars to award for the company's customer service. Please do not enter personal information into the comments.</h4>
++    <h4 style="font-size:1.2em; font-weight:bold">(Comments will be added pending approval by the webmaster.)</h4>
+ 
+     <div class="comment-form-container">
+         <form style="width:100%" asp-action="AddComment" asp-controller="Post" method="post">
+diff --git a/WayBack_Machine_Clone/Views/Post/_CommentDetails.cshtml b/WayBack_Machine_Clone/Views/Post/_CommentDetails.cshtml
+deleted file mode 100644
+index 79e85e1..0000000
+--- a/WayBack_Machine_Clone/Views/Post/_CommentDetails.cshtml
++++ /dev/null
+@@ -1,31 +0,0 @@
+-﻿@model Wayback_Machine_Clone.Models.Comment
+-<div>
+-    <!-- Comment Title -->
+-    <h1 style="font-size: 1.5em; font-weight:bold"> Comments for <a style="color:black;" href="/Post/Index?title=@Model.post.Title&id=@Model.post.Id">@Model.post.Title</a></h1>
+-
+-    <hr> <br> <br><br><br><br><br><br><br><br><br><br><br><br>
+-
+-    <!-- Comment Details -->
+-    <div class="post-details" style="width:90%;">
+-        <h2 style="width:80%; font-size: 1.1em; font-weight:bold">@Model.Content</h2>
+-        <p>
+-            @for (int i = 1; i <= 5; i++)
+-            {
+-                if (i <= @Model.rating)
+-                {
+-                    @:★
+-                }
+-                else
+-                {
+-                    @:☆
+-                }
+-            }
+-            out of ★★★★★
+-        </p>
+-        <p style="width: 95%;">@Model.Content</p>
+-    </div>
+-
+-    <!-- Meta Information -->
+-    <h3 style="font-size: 1.2em; font-weight:bold; margin-bottom: 0.3em;">Replies</h3>
+-
+-</div>
+diff --git a/WayBack_Machine_Clone/Views/Post/_CommentTableRows.cshtml b/WayBack_Machine_Clone/Views/Post/_CommentTableRows.cshtml
+index cd4dd32..5244846 100644
+--- a/WayBack_Machine_Clone/Views/Post/_CommentTableRows.cshtml
++++ b/WayBack_Machine_Clone/Views/Post/_CommentTableRows.cshtml
+@@ -6,28 +6,36 @@
+         @foreach (var comment in @Model)
+         {
+             <tr>
+-                <td style="width:25%">@comment.CreatedAt.ToString("MM/dd/yyyy")</td>
+-                <td style="width:25%">
++                <td style="width:10%">@comment.CreatedAt.ToString("MM/dd/yyyy")</td>
++                <td style="width:10%">
+                     @for (int j = 1; j <= 5; j++)
+                     {
+                         if (j <= comment.rating)
+                         {
+-                            @:★
++                            <span style="color: #FDDA68;">★</span>
+                         }
+                         else
+                         {
+-                            @:☆
++                            <span>☆</span>
+                         }
+                     }
+                 </td>
+-                <td style="width:50%">
+-                    <a style=" color:black" asp-controller="Post" asp-action="Comment" asp-route-Id="@comment.Id">@comment.Content</a>
++                <td style="width:80%">
++                <a class="comment-title-details" href="/Comment/Index/?url=@comment.Url">
++                    @comment.post.Title.Split(" ")[0] - @string.Join(" ", comment.Content.Split(' ').Take(10))
++                </a>
++                <p>
++                    @comment.Content
++                </p>
++                <br>
++                <span class="comment-author">@comment.Nickname</span>
++                <a href = "/Comment/Index/?url=@comment.Url"class="comment-read-more">Read More</a>
+                 </td>
+             </tr>
+         }
+ }
+ else
+ {
+-    <p style="font-weight:bold;">No More Comments Found!</p>
++    <p style="font-weight:bold; font-size:0.7em">No Comments Found!</p>
+ 
+ }
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Post/_Comments.cshtml b/WayBack_Machine_Clone/Views/Post/_Comments.cshtml
+index b822586..80e31b0 100644
+--- a/WayBack_Machine_Clone/Views/Post/_Comments.cshtml
++++ b/WayBack_Machine_Clone/Views/Post/_Comments.cshtml
+@@ -1,8 +1,23 @@
+ ﻿@model Wayback_Machine_Clone.Models.Post
+ 
+ <div style="width:100%; margin-bottom: 0.5em; margin-top:0;">
+-    <h4 style="color:black; font-size:1em; text-decoration:none; margin-botton:0">
+-        Sort By <a style="color:black; font-size:1em; text-decoration:underline" href="/Post/Index?title=@Model.Title&id=@Model.Id&sortOrder=Newest">Newest</a> <a style="color:black; font-size:1em; text-decoration:underline" href="/Post/Index?title=@Model.Title&id=@Model.Id&sortOrder=Oldest">Oldest</a>
++    <h3 style="font-size: 1.2em; font-weight:bold; margin-bottom: 0.3em;">Comments</h3>
++    <p style="font-weight:bold;margin-bottom: 0.1em;">
++        @for (int i = 1; i <= 5; i++)
++        {
++            if (i <= @Model.rating)
++            {
++                <span style="color: #FDDA68;">★</span>
++            }
++            else
++            {
++                <span>☆</span>
++            }
++        }
++        out of <span style="color: #FDDA68;">★★★★★</span> based on @Model.Comments.Count() Reviews
++    </p>
++    <h4 style="font-size: 0.8em; font-weight:bold;margin-bottom: 0.1em; color:black; text-decoration:none; margin-botton:0">
++        Sort By <a style="color:black; font-size:1em; text-decoration:underline" href="/Post/Index?url=@Model.Url">Newest</a> <a style="color:black; font-size:1em; text-decoration:underline" href="/Post/Index?url=@Model.Url&sortOrder=Oldest">Oldest</a>
+     </h4>
+     <!-- Comments Table -->
+     @if (Model.Comments != null)
+@@ -27,7 +42,7 @@
+ 
+     }
+     <div style="display:flex; justify-content:end">
+-        <button style="border:none; background:white; color:black" id="load-more-comments" data-post-id="@Model.Id" style="margin-top: 1em;">Load More Comments</button>
++        <button style=" font-size: 0.7em; border:none; background:white; color:black" id="load-more-comments" data-post-id="@Model.Id" style="margin-top: 1em;">Load More Comments</button>
+     </div>
+ 
+ 
+diff --git a/WayBack_Machine_Clone/Views/Post/_PostDetails.cshtml b/WayBack_Machine_Clone/Views/Post/_PostDetails.cshtml
+index 3beb370..bdf521b 100644
+--- a/WayBack_Machine_Clone/Views/Post/_PostDetails.cshtml
++++ b/WayBack_Machine_Clone/Views/Post/_PostDetails.cshtml
+@@ -9,9 +9,9 @@
+     <div class="post-details">
+         <h2 style="font-size: 1.3em; font-weight:bold">Description</h2>
+         <h3 style="font-size: 1.2em; font-weight:bold">Phone Number:</h3>
+-        <h4 style="font-size: 1.2em; font-weight:bold;"><a style="color:black; text-decoration:none" href="tel:@Model.PhoneNumber">@Model.PhoneNumber</a></h4>
+-
+-        <p style="width: 85%;">@Model.Content</p>
++        <h4 style="font-size: 1.2em; font-weight:bold;"><a href="tel:@Model.PhoneNumber">@Model.PhoneNumber</a></h4>
++        <br />
++        <div style="font-size: 0.8em;">@Html.Raw(Model.Content)</div>
+     </div>
+ 
+ 
+@@ -21,9 +21,9 @@
+ <div style="width:100%">
+ 
+     <!-- Meta Information -->
+-    <h3 style="font-size: 1.2em; padding-bottom: 0; margin: 0; font-weight:bold;">Phone Number</h3>
++    <h3 style="font-size: 1.2em; padding-bottom: 0; margin-top:1em; font-weight:bold;">Phone Number</h3>
+ 
+-    <div style="width: 100%" class="comment-form-container">
++    <div style="width: 100%">
+         <table style="font-size: 0.9em; padding-bottom: 0.5em; margin-top: 0; margin-bottom: 1.3em" class="contact-table">
+             <tr style="background:black; color:white">
+                 <td style="width: 50%;" align="left" valign="top">
+@@ -35,7 +35,7 @@
+             </tr>
+             <tr>
+                 <td style="width: 50%%;" align="left" valign="top">
+-                    <a style="color:black; text-decoration:none" href="tel:@Model.PhoneNumber">@Model.PhoneNumber</a>
++                    <a href="tel:@Model.PhoneNumber">@Model.PhoneNumber</a>
+                 </td>
+                 <td style="width: 50%;" align="left">
+                     @Model.Hint
+@@ -47,19 +47,4 @@
+     </div>
+ 
+     <h3 style="color: #656565; font-size: 1.2em; font-weight:bold;">Company Website</h3>
+-    <h3 style="font-size: 1.2em; font-weight:bold; margin-bottom: 0.3em;">Comments</h3>
+-    <p>
+-        @for (int i = 1; i <= 5; i++)
+-        {
+-            if (i <= @Model.rating)
+-            {
+-                @:★
+-            }
+-            else
+-            {
+-                @:☆
+-            }
+-        }
+-        out of ★★★★★ based on @Model.Comments.Count() Reviews
+-    </p>
+ </div>
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Post/_RepliesTable.cshtml b/WayBack_Machine_Clone/Views/Post/_RepliesTable.cshtml
+deleted file mode 100644
+index 4a48e8f..0000000
+--- a/WayBack_Machine_Clone/Views/Post/_RepliesTable.cshtml
++++ /dev/null
+@@ -1,29 +0,0 @@
+-﻿@model Wayback_Machine_Clone.Models.Comment
+-
+-
+-<div style="margin-bottom: 0.5em;width:100%">
+-    <!-- Comments Table -->
+-    @if (Model != null)
+-    {
+-        <table width="100%" class="comment-table">
+-            <thead>
+-                <tr>
+-                    <th>Date</th>
+-                    <th>Reply</th>
+-                </tr>
+-            </thead>
+-            <tbody id="replies-container">
+-                <partial name="_ReplyTableRows" model="Model.Replies.Take(10)"></partial>
+-            </tbody>
+-        </table>
+-
+-    }
+-    else
+-    {
+-        <p style="font-weight:bold;">No Replies Found!</p>
+-
+-    }
+-    <div style="display:flex; justify-content:end">
+-        <button style="border:none; background:white; color:black" id="load-more-replies" data-comment-id="@Model.Id" style="margin-top: 1em;">Load More Replies</button>
+-    </div>
+-</div>
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Post/_ReplyForm.cshtml b/WayBack_Machine_Clone/Views/Post/_ReplyForm.cshtml
+deleted file mode 100644
+index e4a531d..0000000
+--- a/WayBack_Machine_Clone/Views/Post/_ReplyForm.cshtml
++++ /dev/null
+@@ -1,48 +0,0 @@
+-﻿@model Wayback_Machine_Clone.Models.Comment
+-
+-
+-<!-- Replies Form -->
+-<div class="comment-form">
+-    <h4 style="font-size:1.6em; font-weight:bold">Add a reply:</h4>
+-    <h4 style="font-size:1.6em; font-weight:bold">(Replies will be added pending approval by the webmaster.)</h4>
+-
+-    <div class="comment-form-container">
+-        <form style="width:100%" asp-action="AddReply" asp-controller="Post" method="post">
+-            <table class="contact-table">
+-                <input type="hidden" name="postId" value="@Model.post.Id" />
+-                <tr>
+-                    <td style="width: 30%;" align="right" valign="top">
+-                        Your Reply (required)
+-                    </td>
+-                    <td style="width: 70%;" align="left">
+-                        <textarea id="content" name="Content" rows="4" id="TextBox4" required></textarea>
+-                    </td>
+-                </tr>
+-                <tr>
+-                    <td style="width: 30%;" align="right" valign="top">
+-                        Your First Name or Nickname
+-                    </td>
+-                    <td style="width: 70%;" align="left">
+-                        <input name="Name" type="text" id="TextBox1" />
+-                    </td>
+-                </tr>
+-                <tr>
+-                    <td style="width: 30%;" align="right" valign="top">
+-                        Your E-Mail Address (not published)
+-                    </td>
+-                    <td style="width: 70%;" align="left">
+-                        <input name="Email" type="email" id="TextBox2" required />
+-                    </td>
+-                </tr>
+-                <input type="hidden" name="parentCommentId" value="@Model.Id" />
+-                <tr>
+-                    <td colspan="2" align="center">
+-                        <br /><br />
+-                        <button type="submit">Submit Reply</button>
+-
+-                    </td>
+-                </tr>
+-            </table>
+-        </form>
+-    </div>
+-</div>
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Post/_ReplyTableRows.cshtml b/WayBack_Machine_Clone/Views/Post/_ReplyTableRows.cshtml
+deleted file mode 100644
+index e104976..0000000
+--- a/WayBack_Machine_Clone/Views/Post/_ReplyTableRows.cshtml
++++ /dev/null
+@@ -1,20 +0,0 @@
+-﻿  @model IEnumerable<Wayback_Machine_Clone.Models.Comment>
+-
+-  <!-- Reply Table -->
+-@if (@Model != null && Model.Count() != 0)
+-{
+-        @foreach (var comment in @Model)
+-        {
+-            <tr>
+-                <td style="width:25%">@comment.CreatedAt.ToString("MM/dd/yyyy")</td>
+-                <td style="width:50%">
+-                    <a style=" color:black" asp-controller="Post" asp-action="Comment" asp-route-Id="@comment.Id">@comment.Content</a>
+-                </td>
+-            </tr>
+-        }
+-}
+-else
+-{
+-    <p style="font-weight:bold;">No More Replies Found!</p>
+-
+-}
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Search/Alphabets.cshtml b/WayBack_Machine_Clone/Views/Search/Alphabets.cshtml
+index ac031b6..0c3fd9c 100644
+--- a/WayBack_Machine_Clone/Views/Search/Alphabets.cshtml
++++ b/WayBack_Machine_Clone/Views/Search/Alphabets.cshtml
+@@ -31,7 +31,7 @@ else
+ 
+                 </td>
+                 <td>
+-                    <a  href="@Url.Action("Index", "Post", new { id = posts.Id })">Review and Hints</a>
++                    <a style=" color:blue; text-decoration:underline" href="@Url.Action("Index", "Post", new { url = posts.Url })">Review and Hints</a>
+                 </td>
+             </tr>
+         }
+diff --git a/WayBack_Machine_Clone/Views/Search/Search.cshtml b/WayBack_Machine_Clone/Views/Search/Search.cshtml
+index dc9d243..05ec03a 100644
+--- a/WayBack_Machine_Clone/Views/Search/Search.cshtml
++++ b/WayBack_Machine_Clone/Views/Search/Search.cshtml
+@@ -27,7 +27,7 @@ else
+                     <p>@posts.PhoneNumber</p>
+                 </td>
+                 <td>
+-                    <a href="@Url.Action("Index", "Post", new { id = posts.Id })">Review and Hints</a>
++                    <a style=" color:blue; text-decoration:underline" href="@Url.Action("Index", "Post", new { url = posts.Url })">Review and Hints</a>
+                 </td>
+             </tr>
+         }
+diff --git a/WayBack_Machine_Clone/Views/Shared/_CustomLayout.cshtml b/WayBack_Machine_Clone/Views/Shared/_CustomLayout.cshtml
+index f62c85a..469dd76 100644
+--- a/WayBack_Machine_Clone/Views/Shared/_CustomLayout.cshtml
++++ b/WayBack_Machine_Clone/Views/Shared/_CustomLayout.cshtml
+@@ -6,6 +6,10 @@
+     <title>@ViewData["Title"] - Customer Service Numbers</title>
+     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+     <link href="~/css/site.css" rel="stylesheet" />
++    <link href="~/css/search.css" rel="stylesheet" />
++    <!-- Font Awesome CDN -->
++    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
++    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" integrity="sha384-k6RqeWeci5ZR/Lv4MR0sA0FfDOM2tHki6l4p6LAslgDRFF56P3OhuPiUtVwzCTaA" crossorigin="anonymous">
+ 
+     <style>
+         .body-section {
+@@ -13,17 +17,16 @@
+             justify-content: center;
+             line-height: 1.2em;
+             margin-top: 1em;
+-            font-size: 1em;
+-            min-height: 45vh;
++            font-size: 0.8em;
++            min-height: 75vh;
+         }
+ 
+ 
+ 
+         .body-div {
+-            display:flex;
+-            flex-direction:column;
+-            justify-content:center;
+-
++            display: flex;
++            flex-direction: column;
++            justify-content: center;
+             width: 80%;
+         }
+ 
+@@ -32,20 +35,37 @@
+ <body>
+     <partial name="_Header">
+ 
+-        <!-- Categories Section as a Table -->
+-        <section class="body-section">
+-            <div class="body-div">
+-                @RenderBody() <!-- Renders the main content of the page -->
+-            </div>
+-        </section>
+-    </div>
++        <!-- Main Content Section -->
++        <div class="content">
++            <!-- Optional Section Placeholder for Custom Sections in Views -->
++            @RenderSection("Section", required: false)
++
++                <!-- Body Section -->
++                <section class="body-section">
++                    <div class="body-div">
++                        @RenderBody() <!-- Renders the main content of the page -->
++                    </div>
++                </section>
++        </div>
++
++        <!-- Footer -->
++        <partial name="_Footer">
++
++            @RenderSection("Scripts", required: false)
++
++            <script>
+ 
+-    <!-- Footer -->
+-    <partial name="_Footer">
++                document.addEventListener('DOMContentLoaded', function () {
++                    const navbarToggle = document.getElementById('navbar-toggle');
++                    const navbarMobile = document.getElementById('navbar-mobile');
+ 
+-    @RenderSection("Scripts", required: false)
++                    navbarToggle.addEventListener('click', function () {
++                        navbarMobile.classList.toggle('active'); // Toggle the mobile navbar
++                    });
++                });
++            </script>
+ 
+-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
++            <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
++            <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+ </body>
+-</html>
++</html>
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Shared/_Footer.cshtml b/WayBack_Machine_Clone/Views/Shared/_Footer.cshtml
+index ccda171..eafef3f 100644
+--- a/WayBack_Machine_Clone/Views/Shared/_Footer.cshtml
++++ b/WayBack_Machine_Clone/Views/Shared/_Footer.cshtml
+@@ -1,5 +1,6 @@
+ ﻿<footer>
+-    <p>©2008-2014 Customer Service Numbers, Inc.</p>
++    <hr>
++    <p>©2024 Customer Service Numbers, Inc.</p>
+     <a href="https://customerservicenumbers.com/about-us/">About |</a>
+     <a href="https://customerservicenumbers.com/privacy-policy/"> Privacy Policy |</a>
+     <a href="https://customerservicenumbers.com/dmca-policy/"> DMCA |</a>
+diff --git a/WayBack_Machine_Clone/Views/Shared/_Header.cshtml b/WayBack_Machine_Clone/Views/Shared/_Header.cshtml
+index 2135d5f..73c9e9e 100644
+--- a/WayBack_Machine_Clone/Views/Shared/_Header.cshtml
++++ b/WayBack_Machine_Clone/Views/Shared/_Header.cshtml
+@@ -2,41 +2,37 @@
+ <header>
+     <section class="header-section">
+         <div class="logo">
+-            <img src="~/images/16.png" alt="Logo">
++            <a href="~/">
++                <img src="~/images/CSNDB-LOGO.png" alt="Logo">
++            </a>
+         </div>
+ 
+-        <div>
+-            <nav class="navbar navbar-expand-lg">
+-                <div class="container-fluid">
+-                    <!-- Brand -->
+-                    <a style="color:white" class="navbar-links" href="@Url.Action("Index", "Home")">CSN</a>
+ 
+-                    <!-- Toggler Button with Icon -->
+-                    <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+-                        <i class="fa-solid fa-bars" style="color: #FFD43B;"></i>
+-                    </button>
+-
+-                    <!-- Collapsible Navbar Links -->
+-                    <div class="collapse navbar-collapse" id="navbarNav">
+-                        <ul class="navbar-nav">
+-                            <li class="nav-item">
+-                                <a style = "color:white" class="nav-link" href="@Url.Action("Index", "Home")">Home</a>
+-                            </li>
+-                            <li  class="nav-item">
+-                                <a style = "color:white" class="nav-link" asp-action="About" asp-controller="Home">About Us</a>
+-                            </li>
+-                            <li  class="nav-item">
+-                                <a style = "color:white" class="nav-link" href="@Url.Action("Privacy", "Home")">Privacy Policy</a>
+-                            </li>
+-                            <li  class="nav-item">
+-                                <a style = "color:white" class="nav-link" href="/Contact">Review</a>
+-                            </li>
+-                        </ul>
+-                    </div>
+-                </div>
+-            </nav>
++        <!-- Desktop Navigation -->
++        <div class="navbar" id="navbar">
++            <ul class="nav-links">
++                <li><a href="@Url.Action("Index", "Home")">CSN</a></li>
++                <li><a href="@Url.Action("Index", "Home")">Home</a></li>
++                <li><a href="@Url.Action("About", "Home")">About</a></li>
++                <li><a href="@Url.Action("Privacy", "Home")">Privacy Policy</a></li>
++                <li><a href="@Url.Action("Contact", "Home")">Contact</a></li>
++            </ul>
++        </div>
++        <div class="navbar-toggle" id="navbar-toggle">
++            <!-- Button for Mobile Menu -->
++            <button class = "navbutton" aria-controls="navbar-mobile" aria-expanded="false" aria-label="Toggle navigation">
++                <i class="fa-solid fa-bars" style="color: black;"></i>
++            </button>
++            <!-- Mobile Navigation (Initially Hidden) -->
++            <div class="navbar-mobile" id="navbar-mobile">
++                <ul class="nav-links-mob">
++                    <li><a href="@Url.Action("Index", "Home")">CSN</a></li>
++                    <li><a href="@Url.Action("Index", "Home")">Home</a></li>
++                    <li><a href="@Url.Action("About", "Home")">About</a></li>
++                    <li><a href="@Url.Action("Privacy", "Home")">Privacy Policy</a></li>
++                    <li><a href="@Url.Action("Contact", "Home")">Contact</a></li>
++                </ul>
++            </div>
+         </div>
+-
+-
+     </section>
+ </header>
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/Views/Shared/_Layout.cshtml b/WayBack_Machine_Clone/Views/Shared/_Layout.cshtml
+index cc24e37..4010236 100644
+--- a/WayBack_Machine_Clone/Views/Shared/_Layout.cshtml
++++ b/WayBack_Machine_Clone/Views/Shared/_Layout.cshtml
+@@ -37,13 +37,24 @@
+     <partial name="_Footer">
+ 
+     @RenderSection("Script", required: false)
+-
+-    <script>
+-        function toggleAdvanced() {
+-            const advancedOptions = document.getElementById("advanced-options");
+-            advancedOptions.style.display = advancedOptions.style.display === "none" ? "block" : "none";
++            <script>
++                function toggleAdvanced() {
++                    const advancedOptions = document.getElementById("advanced-options");
++                    advancedOptions.style.display = advancedOptions.style.display === "none" ? "block" : "none";
+                 }
++            </script>
++    <script>
++
++        document.addEventListener('DOMContentLoaded', function () {
++        const navbarToggle = document.getElementById('navbar-toggle');
++        const navbarMobile = document.getElementById('navbar-mobile');
++
++        navbarToggle.addEventListener('click', function () {
++            navbarMobile.classList.toggle('active'); // Toggle the mobile navbar
++        });
++        });
+     </script>
++
+     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+ </body>
+diff --git a/WayBack_Machine_Clone/Views/Shared/_Search.cshtml b/WayBack_Machine_Clone/Views/Shared/_Search.cshtml
+index a60fa69..313e089 100644
+--- a/WayBack_Machine_Clone/Views/Shared/_Search.cshtml
++++ b/WayBack_Machine_Clone/Views/Shared/_Search.cshtml
+@@ -3,7 +3,7 @@
+     <div class="search-container">
+         <!-- Search Bar -->
+         <form asp-controller="Search" asp-action="Search" method="get" class="search-bar">
+-            <input type="text" name="query" placeholder="Search..." />
++            <input type="text" name="query" placeholder="" />
+             <button type="submit">
+                 <img src="https://cdn-icons-png.flaticon.com/512/54/54481.png" alt="search icon">
+             </button>
+@@ -124,4 +124,4 @@
+ <br />
+ <br />
+ <br />
+-<br />
+\ No newline at end of file
++<br />
+diff --git a/WayBack_Machine_Clone/WayBack_Machine_Clone.csproj.user b/WayBack_Machine_Clone/WayBack_Machine_Clone.csproj.user
+index 55777fb..9db49c3 100644
+--- a/WayBack_Machine_Clone/WayBack_Machine_Clone.csproj.user
++++ b/WayBack_Machine_Clone/WayBack_Machine_Clone.csproj.user
+@@ -9,5 +9,7 @@
+     <View_SelectedScaffolderID>RazorViewEmptyScaffolder</View_SelectedScaffolderID>
+     <View_SelectedScaffolderCategoryPath>root/Common/MVC/View</View_SelectedScaffolderCategoryPath>
+     <NameOfLastUsedPublishProfile>C:\Users\Hussain\source\repos\WayBack_Machine_Clone\WayBack_Machine_Clone\Properties\PublishProfiles\FolderProfile1.pubxml</NameOfLastUsedPublishProfile>
++    <Controller_SelectedScaffolderID>MvcControllerEmptyScaffolder</Controller_SelectedScaffolderID>
++    <Controller_SelectedScaffolderCategoryPath>root/Common/MVC/Controller</Controller_SelectedScaffolderCategoryPath>
+   </PropertyGroup>
+ </Project>
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.dll b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.dll
+index 831fa24..33daf0a 100644
+Binary files a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.dll and b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.dll differ
+diff --git a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.exe b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.exe
+index 253a88e..fe99757 100644
+Binary files a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.exe and b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.exe differ
+diff --git a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.pdb b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.pdb
+index 1378ab5..e669b53 100644
+Binary files a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.pdb and b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.pdb differ
+diff --git a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.staticwebassets.runtime.json b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.staticwebassets.runtime.json
+index 93c3a64..2c65a92 100644
+--- a/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.staticwebassets.runtime.json
++++ b/WayBack_Machine_Clone/bin/Debug/net8.0/WayBack_Machine_Clone.staticwebassets.runtime.json
+@@ -1 +1 @@
+-{"ContentRoots":["C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\","C:\\Users\\Hussain\\.nuget\\packages\\microsoft.aspnetcore.identity.ui\\8.0.11\\staticwebassets\\V5\\","C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\obj\\Debug\\net8.0\\scopedcss\\bundle\\"],"Root":{"Children":{"css":{"Children":{"search.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/search.css"},"Patterns":null},"site.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"favicon.ico"},"Patterns":null},"images":{"Children":{"16.png":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"images/16.png"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"Identity":{"Children":{"css":{"Children":{"site.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"favicon.ico"},"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"WayBack_Machine_Clone.styles.css":{"Children":null,"Asset":{"ContentRootIndex":2,"SubPath":"WayBack_Machine_Clone.styles.css"},"Patterns":null}},"Asset":null,"Patterns":[{"ContentRootIndex":0,"Pattern":"**","Depth":0}]}}
+\ No newline at end of file
++{"ContentRoots":["C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\","C:\\Users\\Hussain\\.nuget\\packages\\microsoft.aspnetcore.identity.ui\\8.0.11\\staticwebassets\\V5\\","C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\obj\\Debug\\net8.0\\scopedcss\\bundle\\"],"Root":{"Children":{"css":{"Children":{"search.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/search.css"},"Patterns":null},"site.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"favicon.ico"},"Patterns":null},"images":{"Children":{"16.png":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"images/16.png"},"Patterns":null},"CSNDB-LOGO.png":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"images/CSNDB-LOGO.png"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"Identity":{"Children":{"css":{"Children":{"site.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"favicon.ico"},"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"WayBack_Machine_Clone.styles.css":{"Children":null,"Asset":{"ContentRootIndex":2,"SubPath":"WayBack_Machine_Clone.styles.css"},"Patterns":null}},"Asset":null,"Patterns":[{"ContentRootIndex":0,"Pattern":"**","Depth":0}]}}
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfo.cs b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfo.cs
+index 6fc6fc1..260098e 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfo.cs
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfo.cs
+@@ -15,7 +15,7 @@ using System.Reflection;
+ [assembly: System.Reflection.AssemblyCompanyAttribute("WayBack_Machine_Clone")]
+ [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
+ [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
+-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+88bd31d181fc4108f49e3e151fdd8d55de6ecce8")]
++[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+72cfd68422b7ffe0b6fcf70cdf1117992304aa2a")]
+ [assembly: System.Reflection.AssemblyProductAttribute("WayBack_Machine_Clone")]
+ [assembly: System.Reflection.AssemblyTitleAttribute("WayBack_Machine_Clone")]
+ [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfoInputs.cache b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfoInputs.cache
+index 6217909..0053f81 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfoInputs.cache
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.AssemblyInfoInputs.cache
+@@ -1 +1 @@
+-c2a0f7eaee6232b48bd19dcdc5098a3363772041fd1640e3c924615c1d663174
++f443189ae1e2fe4bc71a344650e20baa48c57f84e32a008bbb63738bb3f1a552
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.GeneratedMSBuildEditorConfig.editorconfig b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.GeneratedMSBuildEditorConfig.editorconfig
+index d181edd..6d58c59 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.GeneratedMSBuildEditorConfig.editorconfig
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.GeneratedMSBuildEditorConfig.editorconfig
+@@ -102,6 +102,26 @@ build_metadata.AdditionalFiles.CssScope =
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQWRtaW5cTWFuYWdlUG9zdHMuY3NodG1s
+ build_metadata.AdditionalFiles.CssScope = 
+ 
++[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Comment/Index.cshtml]
++build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29tbWVudFxJbmRleC5jc2h0bWw=
++build_metadata.AdditionalFiles.CssScope = 
++
++[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Comment/_CommentDetails.cshtml]
++build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29tbWVudFxfQ29tbWVudERldGFpbHMuY3NodG1s
++build_metadata.AdditionalFiles.CssScope = 
++
++[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Comment/_RepliesTable.cshtml]
++build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29tbWVudFxfUmVwbGllc1RhYmxlLmNzaHRtbA==
++build_metadata.AdditionalFiles.CssScope = 
++
++[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Comment/_ReplyForm.cshtml]
++build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29tbWVudFxfUmVwbHlGb3JtLmNzaHRtbA==
++build_metadata.AdditionalFiles.CssScope = 
++
++[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Comment/_ReplyTableRows.cshtml]
++build_metadata.AdditionalFiles.TargetPath = Vmlld3NcQ29tbWVudFxfUmVwbHlUYWJsZVJvd3MuY3NodG1s
++build_metadata.AdditionalFiles.CssScope = 
++
+ [C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Home/About.cshtml]
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSG9tZVxBYm91dC5jc2h0bWw=
+ build_metadata.AdditionalFiles.CssScope = 
+@@ -122,10 +142,6 @@ build_metadata.AdditionalFiles.CssScope =
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcSG9tZVxQcml2YWN5LmNzaHRtbA==
+ build_metadata.AdditionalFiles.CssScope = 
+ 
+-[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/Comment.cshtml]
+-build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxDb21tZW50LmNzaHRtbA==
+-build_metadata.AdditionalFiles.CssScope = 
+-
+ [C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/Index.cshtml]
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxJbmRleC5jc2h0bWw=
+ build_metadata.AdditionalFiles.CssScope = 
+@@ -134,10 +150,6 @@ build_metadata.AdditionalFiles.CssScope =
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfQWRkQ29tbWVudEZvcm0uY3NodG1s
+ build_metadata.AdditionalFiles.CssScope = 
+ 
+-[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/_CommentDetails.cshtml]
+-build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfQ29tbWVudERldGFpbHMuY3NodG1s
+-build_metadata.AdditionalFiles.CssScope = 
+-
+ [C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/_Comments.cshtml]
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfQ29tbWVudHMuY3NodG1s
+ build_metadata.AdditionalFiles.CssScope = 
+@@ -150,18 +162,6 @@ build_metadata.AdditionalFiles.CssScope =
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfUG9zdERldGFpbHMuY3NodG1s
+ build_metadata.AdditionalFiles.CssScope = 
+ 
+-[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/_RepliesTable.cshtml]
+-build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfUmVwbGllc1RhYmxlLmNzaHRtbA==
+-build_metadata.AdditionalFiles.CssScope = 
+-
+-[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/_ReplyForm.cshtml]
+-build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfUmVwbHlGb3JtLmNzaHRtbA==
+-build_metadata.AdditionalFiles.CssScope = 
+-
+-[C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Post/_ReplyTableRows.cshtml]
+-build_metadata.AdditionalFiles.TargetPath = Vmlld3NcUG9zdFxfUmVwbHlUYWJsZVJvd3MuY3NodG1s
+-build_metadata.AdditionalFiles.CssScope = 
+-
+ [C:/Users/Hussain/source/repos/WayBack_Machine_Clone/WayBack_Machine_Clone/Views/Search/Alphabets.cshtml]
+ build_metadata.AdditionalFiles.TargetPath = Vmlld3NcU2VhcmNoXEFscGhhYmV0cy5jc2h0bWw=
+ build_metadata.AdditionalFiles.CssScope = 
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.MvcApplicationPartsAssemblyInfo.cs b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.MvcApplicationPartsAssemblyInfo.cs
+index d9b389b..f84bb7a 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.MvcApplicationPartsAssemblyInfo.cs
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.MvcApplicationPartsAssemblyInfo.cs
+@@ -1,6 +1,7 @@
+ //------------------------------------------------------------------------------
+ // <auto-generated>
+ //     This code was generated by a tool.
++//     Runtime Version:4.0.30319.42000
+ //
+ //     Changes to this file may cause incorrect behavior and will be lost if
+ //     the code is regenerated.
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.csproj.CoreCompileInputs.cache b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.csproj.CoreCompileInputs.cache
+index 1ee1175..dd8c9df 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.csproj.CoreCompileInputs.cache
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.csproj.CoreCompileInputs.cache
+@@ -1 +1 @@
+-a8e61054b8d05d4e3bc7a48efdebfad1e9eac7b5d346203cebc14dce1b5cbe6a
++ac201d4894913600691034eb277ef493ba8d9a50dbc82488e30e345c02b8d073
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.dll b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.dll
+index 831fa24..33daf0a 100644
+Binary files a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.dll and b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.dll differ
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.pdb b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.pdb
+index 1378ab5..e669b53 100644
+Binary files a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.pdb and b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.pdb differ
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.sourcelink.json b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.sourcelink.json
+index 5e3c851..12610c7 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.sourcelink.json
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/WayBack_Machine_Clone.sourcelink.json
+@@ -1 +1 @@
+-{"documents":{"C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\*":"https://raw.githubusercontent.com/SyedHussainAhmad/WayBack_Machine_Clone/dee332d90687053a131992a28a3804a4cd9e6144/*"}}
+\ No newline at end of file
++{"documents":{"C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\*":"https://raw.githubusercontent.com/SyedHussainAhmad/WayBack_Machine_Clone/72cfd68422b7ffe0b6fcf70cdf1117992304aa2a/*"}}
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/apphost.exe b/WayBack_Machine_Clone/obj/Debug/net8.0/apphost.exe
+index 253a88e..fe99757 100644
+Binary files a/WayBack_Machine_Clone/obj/Debug/net8.0/apphost.exe and b/WayBack_Machine_Clone/obj/Debug/net8.0/apphost.exe differ
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/ref/WayBack_Machine_Clone.dll b/WayBack_Machine_Clone/obj/Debug/net8.0/ref/WayBack_Machine_Clone.dll
+index 786cff0..1f5a0ec 100644
+Binary files a/WayBack_Machine_Clone/obj/Debug/net8.0/ref/WayBack_Machine_Clone.dll and b/WayBack_Machine_Clone/obj/Debug/net8.0/ref/WayBack_Machine_Clone.dll differ
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/refint/WayBack_Machine_Clone.dll b/WayBack_Machine_Clone/obj/Debug/net8.0/refint/WayBack_Machine_Clone.dll
+index 786cff0..1f5a0ec 100644
+Binary files a/WayBack_Machine_Clone/obj/Debug/net8.0/refint/WayBack_Machine_Clone.dll and b/WayBack_Machine_Clone/obj/Debug/net8.0/refint/WayBack_Machine_Clone.dll differ
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.build.json b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.build.json
+index def4f00..eb30580 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.build.json
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.build.json
+@@ -1,6 +1,6 @@
+ {
+   "Version": 1,
+-  "Hash": "sNaa6lkGXR7jc0t+iIsiSSb1ji/a/kzBdSEZaa6vMDM=",
++  "Hash": "B7H+1i3Jbz34NEl5YtNmVdSQfEupcCFPsvkgS9YU6iA=",
+   "Source": "WayBack_Machine_Clone",
+   "BasePath": "_content/WayBack_Machine_Clone",
+   "Mode": "Default",
+@@ -1270,6 +1270,25 @@
+       "CopyToPublishDirectory": "PreserveNewest",
+       "OriginalItemSpec": "wwwroot\\images\\16.png"
+     },
++    {
++      "Identity": "C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\images\\CSNDB-LOGO.png",
++      "SourceId": "WayBack_Machine_Clone",
++      "SourceType": "Discovered",
++      "ContentRoot": "C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\",
++      "BasePath": "_content/WayBack_Machine_Clone",
++      "RelativePath": "images/CSNDB-LOGO.png",
++      "AssetKind": "All",
++      "AssetMode": "All",
++      "AssetRole": "Primary",
++      "AssetMergeBehavior": "PreferTarget",
++      "AssetMergeSource": "",
++      "RelatedAsset": "",
++      "AssetTraitName": "",
++      "AssetTraitValue": "",
++      "CopyToOutputDirectory": "Never",
++      "CopyToPublishDirectory": "PreserveNewest",
++      "OriginalItemSpec": "wwwroot\\images\\CSNDB-LOGO.png"
++    },
+     {
+       "Identity": "C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\js\\site.js",
+       "SourceId": "WayBack_Machine_Clone",
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.development.json b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.development.json
+index 93c3a64..2c65a92 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.development.json
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.development.json
+@@ -1 +1 @@
+-{"ContentRoots":["C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\","C:\\Users\\Hussain\\.nuget\\packages\\microsoft.aspnetcore.identity.ui\\8.0.11\\staticwebassets\\V5\\","C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\obj\\Debug\\net8.0\\scopedcss\\bundle\\"],"Root":{"Children":{"css":{"Children":{"search.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/search.css"},"Patterns":null},"site.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"favicon.ico"},"Patterns":null},"images":{"Children":{"16.png":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"images/16.png"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"Identity":{"Children":{"css":{"Children":{"site.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"favicon.ico"},"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"WayBack_Machine_Clone.styles.css":{"Children":null,"Asset":{"ContentRootIndex":2,"SubPath":"WayBack_Machine_Clone.styles.css"},"Patterns":null}},"Asset":null,"Patterns":[{"ContentRootIndex":0,"Pattern":"**","Depth":0}]}}
+\ No newline at end of file
++{"ContentRoots":["C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\","C:\\Users\\Hussain\\.nuget\\packages\\microsoft.aspnetcore.identity.ui\\8.0.11\\staticwebassets\\V5\\","C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\obj\\Debug\\net8.0\\scopedcss\\bundle\\"],"Root":{"Children":{"css":{"Children":{"search.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/search.css"},"Patterns":null},"site.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"favicon.ico"},"Patterns":null},"images":{"Children":{"16.png":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"images/16.png"},"Patterns":null},"CSNDB-LOGO.png":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"images/CSNDB-LOGO.png"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":0,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"Identity":{"Children":{"css":{"Children":{"site.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"css/site.css"},"Patterns":null}},"Asset":null,"Patterns":null},"favicon.ico":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"favicon.ico"},"Patterns":null},"js":{"Children":{"site.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"js/site.js"},"Patterns":null}},"Asset":null,"Patterns":null},"lib":{"Children":{"bootstrap":{"Children":{"dist":{"Children":{"css":{"Children":{"bootstrap-grid.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css"},"Patterns":null},"bootstrap-grid.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.css.map"},"Patterns":null},"bootstrap-grid.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css"},"Patterns":null},"bootstrap-grid.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.min.css.map"},"Patterns":null},"bootstrap-grid.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css"},"Patterns":null},"bootstrap-grid.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.css.map"},"Patterns":null},"bootstrap-grid.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css"},"Patterns":null},"bootstrap-grid.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-grid.rtl.min.css.map"},"Patterns":null},"bootstrap-reboot.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css"},"Patterns":null},"bootstrap-reboot.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.css.map"},"Patterns":null},"bootstrap-reboot.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css"},"Patterns":null},"bootstrap-reboot.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.min.css.map"},"Patterns":null},"bootstrap-reboot.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css"},"Patterns":null},"bootstrap-reboot.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.css.map"},"Patterns":null},"bootstrap-reboot.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css"},"Patterns":null},"bootstrap-reboot.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-reboot.rtl.min.css.map"},"Patterns":null},"bootstrap-utilities.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css"},"Patterns":null},"bootstrap-utilities.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.css.map"},"Patterns":null},"bootstrap-utilities.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css"},"Patterns":null},"bootstrap-utilities.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.min.css.map"},"Patterns":null},"bootstrap-utilities.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css"},"Patterns":null},"bootstrap-utilities.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.css.map"},"Patterns":null},"bootstrap-utilities.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css"},"Patterns":null},"bootstrap-utilities.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap-utilities.rtl.min.css.map"},"Patterns":null},"bootstrap.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css"},"Patterns":null},"bootstrap.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.css.map"},"Patterns":null},"bootstrap.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css"},"Patterns":null},"bootstrap.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.min.css.map"},"Patterns":null},"bootstrap.rtl.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css"},"Patterns":null},"bootstrap.rtl.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.css.map"},"Patterns":null},"bootstrap.rtl.min.css":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css"},"Patterns":null},"bootstrap.rtl.min.css.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/css/bootstrap.rtl.min.css.map"},"Patterns":null}},"Asset":null,"Patterns":null},"js":{"Children":{"bootstrap.bundle.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js"},"Patterns":null},"bootstrap.bundle.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.js.map"},"Patterns":null},"bootstrap.bundle.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js"},"Patterns":null},"bootstrap.bundle.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.bundle.min.js.map"},"Patterns":null},"bootstrap.esm.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js"},"Patterns":null},"bootstrap.esm.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.js.map"},"Patterns":null},"bootstrap.esm.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js"},"Patterns":null},"bootstrap.esm.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.esm.min.js.map"},"Patterns":null},"bootstrap.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js"},"Patterns":null},"bootstrap.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.js.map"},"Patterns":null},"bootstrap.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js"},"Patterns":null},"bootstrap.min.js.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/dist/js/bootstrap.min.js.map"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/bootstrap/LICENSE"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation-unobtrusive":{"Children":{"jquery.validate.unobtrusive.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js"},"Patterns":null},"jquery.validate.unobtrusive.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js"},"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation-unobtrusive/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery-validation":{"Children":{"dist":{"Children":{"additional-methods.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.js"},"Patterns":null},"additional-methods.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/additional-methods.min.js"},"Patterns":null},"jquery.validate.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.js"},"Patterns":null},"jquery.validate.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/dist/jquery.validate.min.js"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.md":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery-validation/LICENSE.md"},"Patterns":null}},"Asset":null,"Patterns":null},"jquery":{"Children":{"dist":{"Children":{"jquery.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.js"},"Patterns":null},"jquery.min.js":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.js"},"Patterns":null},"jquery.min.map":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/dist/jquery.min.map"},"Patterns":null}},"Asset":null,"Patterns":null},"LICENSE.txt":{"Children":null,"Asset":{"ContentRootIndex":1,"SubPath":"lib/jquery/LICENSE.txt"},"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null}},"Asset":null,"Patterns":null},"WayBack_Machine_Clone.styles.css":{"Children":null,"Asset":{"ContentRootIndex":2,"SubPath":"WayBack_Machine_Clone.styles.css"},"Patterns":null}},"Asset":null,"Patterns":[{"ContentRootIndex":0,"Pattern":"**","Depth":0}]}}
+\ No newline at end of file
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.pack.json b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.pack.json
+index 3f4db20..210858b 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.pack.json
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets.pack.json
+@@ -20,6 +20,10 @@
+       "Id": "C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\images\\16.png",
+       "PackagePath": "staticwebassets\\images\\16.png"
+     },
++    {
++      "Id": "C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\images\\CSNDB-LOGO.png",
++      "PackagePath": "staticwebassets\\images\\CSNDB-LOGO.png"
++    },
+     {
+       "Id": "C:\\Users\\Hussain\\source\\repos\\WayBack_Machine_Clone\\WayBack_Machine_Clone\\wwwroot\\js\\site.js",
+       "PackagePath": "staticwebassets\\js\\site.js"
+diff --git a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets/msbuild.WayBack_Machine_Clone.Microsoft.AspNetCore.StaticWebAssets.props b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets/msbuild.WayBack_Machine_Clone.Microsoft.AspNetCore.StaticWebAssets.props
+index 27a2247..4443464 100644
+--- a/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets/msbuild.WayBack_Machine_Clone.Microsoft.AspNetCore.StaticWebAssets.props
++++ b/WayBack_Machine_Clone/obj/Debug/net8.0/staticwebassets/msbuild.WayBack_Machine_Clone.Microsoft.AspNetCore.StaticWebAssets.props
+@@ -64,6 +64,22 @@
+       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+       <OriginalItemSpec>$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)..\staticwebassets\images\16.png))</OriginalItemSpec>
+     </StaticWebAsset>
++    <StaticWebAsset Include="$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)..\staticwebassets\images\CSNDB-LOGO.png))">
++      <SourceType>Package</SourceType>
++      <SourceId>WayBack_Machine_Clone</SourceId>
++      <ContentRoot>$(MSBuildThisFileDirectory)..\staticwebassets\</ContentRoot>
++      <BasePath>_content/WayBack_Machine_Clone</BasePath>
++      <RelativePath>images/CSNDB-LOGO.png</RelativePath>
++      <AssetKind>All</AssetKind>
++      <AssetMode>All</AssetMode>
++      <AssetRole>Primary</AssetRole>
++      <RelatedAsset></RelatedAsset>
++      <AssetTraitName></AssetTraitName>
++      <AssetTraitValue></AssetTraitValue>
++      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
++      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
++      <OriginalItemSpec>$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)..\staticwebassets\images\CSNDB-LOGO.png))</OriginalItemSpec>
++    </StaticWebAsset>
+     <StaticWebAsset Include="$([System.IO.Path]::GetFullPath($(MSBuildThisFileDirectory)..\staticwebassets\js\site.js))">
+       <SourceType>Package</SourceType>
+       <SourceId>WayBack_Machine_Clone</SourceId>
+diff --git a/WayBack_Machine_Clone/wwwroot/css/search.css b/WayBack_Machine_Clone/wwwroot/css/search.css
+index ef8d42d..afb12fc 100644
+--- a/WayBack_Machine_Clone/wwwroot/css/search.css
++++ b/WayBack_Machine_Clone/wwwroot/css/search.css
+@@ -12,8 +12,8 @@
+ }
+ 
+     .search-bar input[type="text"] {
++        padding: 0.2em;
+         width: 100%;
+-        padding: 10px;
+         padding-right: 40px;
+         border: 1px solid #ccc;
+         border-radius: 20px;
+diff --git a/WayBack_Machine_Clone/wwwroot/css/site.css b/WayBack_Machine_Clone/wwwroot/css/site.css
+index 4f0665c..98f367d 100644
+--- a/WayBack_Machine_Clone/wwwroot/css/site.css
++++ b/WayBack_Machine_Clone/wwwroot/css/site.css
+@@ -1,32 +1,18 @@
+ * {
+     margin: 0;
+     padding: 0;
++    font-family: Verdana, Arial, Helvetica, sans-serif;
+     box-sizing: border-box;
+ }
+-/* Change the navbar-toggler button background color */
+-.navbar-toggler {
+-    background-color: #000; /* Black background for better visibility */
+-    border: 1px solid #fff; /* Add a white border (optional) */
+-}
+-
+-/* Change the toggler icon color */
+-.navbar-toggler-icon {
+-    background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Cpath stroke='white' stroke-width='2' stroke-linecap='round' stroke-miterlimit='10' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E");
+-}
+ 
+-.navbar-nav .nav-link {
+-    color: white;
+-    transition: color 0.3s ease; /* Smooth color change */
++a 
++{
++    color:black;
+ }
+-
+-    /* Hover effect */
+-    .navbar-nav .nav-link:hover {
+-        color: #fadf8d; /* Change to your desired hover color */
+-    }
+-
+-    /* Optional: active link styling */
+-    .navbar-nav .nav-link.active {
+-        color: #fadf8d; /* Same as hover for the active link */
++    a:hover
++    {
++        color:orange;
++        text-decoration:none;
+     }
+ 
+ body {
+@@ -38,12 +24,12 @@ body {
+ /* Main Content */
+ .content {
+     text-align: center;
+-    width: 80%;
++    width: 85%;
+     margin: 0 auto;
+ }
+ 
+ .intro-text {
+-    font-size: 1em;
++    font-size: 0.8em;
+     color: #333;
+     margin-top: 2em;
+     width: 80%;
+@@ -52,6 +38,8 @@ body {
+ 
+ /* Categories Table Styling */
+ .categories-table {
++    font-size: 0.8em;
++    font-weight: bold;
+     width: 100%;
+     margin: 2em auto;
+     border-collapse: collapse;
+@@ -80,12 +68,22 @@ body {
+         background-color: #EFEFEF;
+     }
+ 
++home-category {
++    color: black;
++}
++
++    home-category:hover {
++        color: orange;
++        text-decoration: none;
++    }
++
+ /* Footer */
+ footer {
+     text-align: center;
+     margin-top: 3em;
+     padding: 1.5em;
+-    font-size: 1em;
++    font-size: 0.7em;
++    font-weight:bold;
+     color: #666;
+ }
+ 
+@@ -95,25 +93,29 @@ footer {
+     }
+ 
+         footer a:hover {
+-            color: #000;
++            color: orange;
+         }
+ 
++/* Header */
+ header {
+     background: linear-gradient(90deg, rgba(255, 248, 225, 1) 0%, rgba(250, 223, 141, 1) 50%, rgba(255, 248, 225, 1) 100%);
+     display: flex;
+     justify-content: center;
+     padding: 5px;
+     padding-bottom: 10px;
+-    min-height:20vh;
+ }
+ 
+-.body-section {
+-    display: flex;
+-    min-height: 45vh;
++.logo {
++    width: 35%;
+ }
+ 
++    .logo img {
++        width: 70%;
++        padding: 0.5em;
++    }
++
+ .header-section {
+-    width: 80%;
++    width: 85%;
+ }
+ 
+ .navbar {
+@@ -127,83 +129,40 @@ header {
+ }
+ 
+ .nav-links {
++    font-size:0.8em;
+     list-style-type: none;
+     display: flex;
+-    flex-wrap:wrap;
+     padding: 0.2em;
+     margin:0;
+     gap: 1.5em;
+ }
+-.partialView {
+-    display:flex;
+-    text-decoration: none;
+-    font-weight: bold;
+-    color: white;
+-}
+-
+     .nav-links li a {
+         text-decoration: none;
+         font-weight: bold;
+         color: white;
+     }
+ 
+-        .navbar-nav li a:hover {
++        .nav-links li a:hover {
+             color: #fadf8d;
+         }
+ 
+ 
++/* Body */
+ 
+-
+-.body-div {
+-    width: 80%;
++.partialView {
++    display: flex;
++    text-decoration: none;
++    font-weight: bold;
++    color: white;
+ }
+ 
+-/* Mobile Friendly: */
+-
+-@media (max-width: 683px) 
+-{
+-
+-    .header-section {
+-        width: 50%;
+-    }
+-
+-    .navbar {
+-        font-size: 0.7em;
+-    }
+-
+-    * {
+-        font-size: 1em;
+-    }
+-
+-    .nav-links {
+-        /*    flex-direction: column;*/
+-        width: 100%;
+-        padding: 0;
+-        margin: 0;
+-    }
+-
+-        .nav-links li {
+-            text-align: center;
+-            padding: 1em;
+-            width: 100%;
+-        }
+-
+-    .search-bar {
+-        width: 100%;
+-        margin-bottom: 1em;
+-    }
+-
+-    .search-section {
+-        width: 100%;
+-        margin: 0 10px;
+-    }
++.body-section {
++    display: flex;
++    min-height: 45vh;
+ }
+ 
+-/*Contact:*/
+-.contact-table {
+-    border-spacing: 1em 1em;
+-    border-collapse: separate;
+-    font-size: 1.2em;
++.body-div {
++    width: 85%;
+ }
+ 
+ 
+@@ -218,9 +177,17 @@ header {
+ 
+ .post-details {
+     font-size: 1em;
+-    width: 45%;
++    width:100%;
+ }
+ 
++/*Contact:*/
++.contact-table {
++    border-spacing: 1em 1em;
++    border-collapse: separate;
++    font-size: 1.2em;
++}
++
++
+ .comment-form {
+     display: flex;
+     justify-content: center;
+@@ -235,22 +202,48 @@ header {
+     }
+ 
+ .comment-table {
+-    border-collapse: collapse;
+-    margin-top: 2em;
+-    text-align: left;
+-    border: none;
++    font-size: 0.8em;
++    width: 100%;
++    border-collapse: separate; /* Enable border-spacing */
++    border-spacing: 0.5em 0.1em; /* Horizontal and vertical spacing between cells */
+ }
+ 
+     .comment-table th, .comment-table td {
+-        border: 1px solid #ddd;
+-        padding: 8px;
++        padding: 0.7em;
+         text-align: left;
++        vertical-align: top; /* Align text to the top vertically */
++
++        background-color: #f9f9f9; /* Light gray background for visual grouping */
+     }
+ 
+     .comment-table th {
+-        background-color: #f4f4f4;
++        background-color: #f5f5f5;
++        color: #000;
++        font-weight: bold;
++    }
++
++.comment-author {
++    font-size: 0.8em;
++    color: #666;
++}
++.comment-read-more {
++    color: #000;
++    text-decoration: underline;
++    font-size: 0.8em;
++    float: right;
++}
++
++    .comment-read-more:hover {
++        color: orange;
+     }
+ 
++.comment-title-details {
++    color: grey;
++}
++
++    .comment-title-details:hover {
++        color: orange;
++    }
+ .comment-form {
+     display: flex;
+     flex-direction: column;
+@@ -318,7 +311,7 @@ header {
+ }
+ 
+     .star.checked {
+-        color: #ffcc00;
++        color: #FDDA68;
+     }
+ 
+ /* Initially Hide Mobile Navigation */
+@@ -343,19 +336,76 @@ header {
+ 
+ /* Mobile View */
+ @media (max-width: 768px) {
++
++    .body-div {
++        width: 100%;
++        font-size: small;
++    }
++    header {
++        background: linear-gradient(90deg, rgba(255, 248, 225, 1) 0%, rgba(250, 223, 141, 1) 50%, rgba(255, 248, 225, 1) 100%);
++        display: flex;
++        justify-content: center;
++        padding: 5px;
++        padding-bottom: 10px;
++    }
++
+     .navbar {
+         display: none; /* Hide the desktop navbar on mobile */
+     }
+ 
+     .navbar-toggle {
+-        display: block; /* Show the hamburger button only on mobile */
+-        background: none;
+-        border: none;
+-        font-size: 24px;
+-        cursor: pointer;
++        display: flex; /* Show the hamburger button only on mobile */
++        flex-direction: column;
++        justify-content: center;
++        width:30%;
+     }
+ 
+     .navbar-mobile.active {
+-        display: block; /* Show the mobile navbar when active */
++        display: flex; /* Show the hamburger button only on mobile */
++        flex-direction: column;
++    }
++
++    .logo {
++        width: 70%;
+     }
++
++    .logo img {
++        width:90%;
++        padding:0.5em;
++    }
++
++    .header-section {
++        margin: auto;
++        display: flex;
++        justify-content: space-around;
++        width: 90%;
++    }
++
++    .navbutton {
++        background:none;
++        font-size:2em;
++        border:none;
++    }
++
++    .nav-links-mob {
++        list-style-type: none;
++        display: flex;
++        padding: 0.2em;
++        margin: 0;
++        gap: 1.5em;
++        flex-direction: column;
++        justify-content: center;
++        align-items: center;
++        font-size: 0.7em;
++    }
++    }
++
++        .nav-links-mob li a {
++            text-decoration: none;
++            font-weight: bold;
++            color: black;
++        }
++            .nav-links-mob li a:hover {
++                color: #fadf8d;
++            }
+ }
+\ No newline at end of file

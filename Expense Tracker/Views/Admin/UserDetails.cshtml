@@ -1,0 +1,81 @@
+﻿@model IEnumerable<ExpenseTracker.Models.Expense>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success" role="alert">
+        @TempData["Success"]
+    </div>
+}
+<h2 class="text-light">Expenses</h2>
+
+<table class="table table-bordered table-dark">
+    <thead>
+        <tr>
+            <th class="text-light">Category</th>
+            <th class="text-light">Amount</th>
+            <th class="text-light">Date</th>
+            <th class="text-light">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var expense in Model)
+        {
+            <tr>
+                <td class="text-light">@expense.Category.Title</td>
+                <td class="text-light">@expense.Amount</td>
+                <td class="text-light">@expense.Date.ToString("MM/dd/yyyy")</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@expense.ExpenseId" class="btn btn-warning btn-sm">Edit</a>
+                    <a asp-action="Delete" asp-route-id="@expense.ExpenseId" class="btn btn-danger btn-sm">Delete</a>
+                    <a asp-action="Expense" asp-route-id="@expense.ExpenseId" class="btn btn-info btn-sm">View</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<style>
+    body {
+        background-color: #1a1a1a; /* Dark background */
+        font-family: 'Poppins', sans-serif;
+    }
+
+    .table {
+        border-color: rgba(255, 255, 255, 0.3); /* Light border for visibility */
+    }
+
+    .table th, .table td {
+        vertical-align: middle;
+    }
+
+    .btn {
+        font-weight: 600; /* Bold buttons for better contrast */
+    }
+
+    .btn-warning {
+        background-color: #f0ad4e;
+        border: none;
+    }
+
+    .btn-danger {
+        background-color: #d9534f;
+        border: none;
+    }
+
+    .btn-info {
+        background-color: #5bc0de;
+        border: none;
+    }
+
+    .btn-warning:hover {
+        background-color: #ec971f;
+    }
+
+    .btn-danger:hover {
+        background-color: #c9302c;
+    }
+
+    .btn-info:hover {
+        background-color: #31b0d5;
+    }
+</style>

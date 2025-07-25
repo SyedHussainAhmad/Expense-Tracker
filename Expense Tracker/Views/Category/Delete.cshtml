@@ -1,0 +1,21 @@
+﻿@{
+    ViewData["Title"] = "Delete Category";
+}
+
+<div class="container mt-5">
+    <h1 class="text-gradient text-center mb-5">Are You Sure?</h1>
+
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card card-hover shadow-lg p-4">
+                <h2 class="text-light">Category Details</h2>
+                <p><strong>Name:</strong> @Model.Name</p>
+
+                <form method="post">
+                    <button type="submit" class="btn btn-danger btn-block">Delete Category</button>
+                </form>
+                <a href="/Category/Index" class="btn btn-light btn-block mt-2">Cancel</a>
+            </div>
+        </div>
+    </div>
+</div>

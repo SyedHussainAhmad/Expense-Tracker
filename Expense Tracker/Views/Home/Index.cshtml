@@ -1,0 +1,158 @@
+﻿@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="container mt-5">
+    <!-- Welcome Banner -->
+    <div class="welcome-banner text-center mb-5">
+        <h1 class="text-gradient">Quick Expense Analysis</h1>
+        <p>Track your expenses, analyze trends, and stay in control of your finances.</p>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row text-center">
+        <div class="col-md-4">
+            <div class="card card-hover shadow-lg">
+                <div class="card-body">
+                    <h5 class="card-title text-gradient">Total Expenses</h5>
+                    <h3 class="text-warning">@ViewBag.TotalExpenses</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card card-hover shadow-lg">
+                <div class="card-body">
+                    <h5 class="card-title text-gradient">This Month</h5>
+                    <h3 class="text-primary">@ViewBag.ThisMonthExpenses</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card card-hover shadow-lg">
+                <div class="card-body">
+                    <h5 class="card-title text-gradient">Largest Expense</h5>
+                    <h3 class="text-danger">@ViewBag.LargestExpense</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="row mt-5">
+        <div class="col-md-6">
+            <div class="chart-card shadow-lg">
+                <canvas id="categoryChart"></canvas>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="chart-card shadow-lg">
+                <canvas id="monthlyTrendsChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Links -->
+    <div class="row mt-5 text-center">
+        <div class="col-md-4">
+            <a href="/Expense/Add" class="btn btn-primary btn-gradient">Add new Expense</a>
+        </div>
+        <div class="col-md-4">
+            <a href="/Expense/Index" class="btn btn-secondary btn-gradient">View All Expenses</a>
+        </div>
+        <div class="col-md-4">
+            <a href="/Category/Index" class="btn btn-success btn-gradient">View All Categories</a>
+        </div>
+    </div>
+</div>
+
+@section Scripts
+{
+   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const categoryLabels = @Html.Raw(ViewBag.CategoryLabels);
+    const categoryValues = @Html.Raw(ViewBag.CategoryValues);
+
+    const categoryCtx = document.getElementById('categoryChart').getContext('2d');
+    const categoryChart = new Chart(categoryCtx, {
+        type: 'pie',
+        data: {
+            labels: categoryLabels,
+            datasets: [{
+                label: 'Category Distribution',
+                data: categoryValues,
+                backgroundColor: ['#8A033E', '#D4AF37', '#B500FF', '#00F9FF']
+            }]
+        },
+        options: {
+            plugins: {
+                legend: {
+                    labels: {
+                        color: 'white' // Set legend text color to white
+                    }
+                }
+            },
+            responsive: true,
+            scales: {
+                y: {
+                    ticks: {
+                        color: 'white' // Set axis tick text color to white
+                    }
+                },
+                x: {
+                    ticks: {
+                        color: 'white' // Set axis tick text color to white
+                    }
+                }
+            }
+        }
+    });
+
+        const monthlyLabels = @Html.Raw(ViewBag.MonthlyLabels);
+        const monthlyValues = @Html.Raw(ViewBag.MonthlyValues);
+
+        const monthlyCtx = document.getElementById('monthlyTrendsChart').getContext('2d');
+        const monthlyTrendsChart = new Chart(monthlyCtx, {
+            type: 'line',
+            data: {
+                labels: monthlyLabels,
+                datasets: [{
+                    label: 'Monthly Expenses',
+                    data: monthlyValues,
+                    borderColor: '#D4AF37',
+                    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+                    tension: 0.3
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: 'white' // Set legend text color to white
+                        }
+                    }
+                },
+                responsive: true,
+                scales: {
+                    y: {
+                        grid: {
+                            color: 'white' // Set y-axis grid lines to white
+                        },
+                        ticks: {
+                            color: 'white' // Set y-axis tick text color to white
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'white' // Set x-axis grid lines to white
+                        },
+                        ticks: {
+                            color: 'white' // Set x-axis tick text color to white
+                        }
+                    }
+                }
+            }
+        });
+
+</script>
+
+}

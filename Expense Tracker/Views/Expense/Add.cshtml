@@ -1,0 +1,125 @@
+﻿@model ExpenseTracker.Models.Expense
+
+@if (TempData["Error"] != null)
+{
+        <div class="alert alert-danger" role="alert">
+        @TempData["Error"]
+        </div>
+}
+
+<h2 class="text-light text-center mb-4">Add Expense</h2>
+
+<form asp-action="AddExpense" method="post" class="bg-dark p-3 rounded shadow-lg form-container">
+    <div class="form-group mb-4">
+        <label for="CategoryId" class="text-light">Category</label>
+        <select asp-for="CategoryId" asp-items="@(new SelectList(ViewBag.Categories, "CategoryId", "Title"))" class="form-control bg-dark text-light border border-secondary rounded shadow-input">
+        </select>
+        <span asp-validation-for="CategoryId" class="text-danger"></span>
+    </div>
+    <div class="form-group mb-4">
+        <label for="Amount" class="text-light">Amount</label>
+        <input asp-for="Amount" class="form-control bg-dark text-light border border-secondary rounded shadow-input" />
+        <span asp-validation-for="Amount" class="text-danger"></span>
+    </div>
+    <div class="form-group mb-4">
+        <label for="Date" class="text-light">Date</label>
+        <input asp-for="Date" type="date" class="form-control bg-dark text-light border border-secondary rounded shadow-input" />
+        <span asp-validation-for="Date" class="text-danger"></span>
+    </div>
+
+    <div class="form-group mb-4">
+        <label for="Note" class="text-light">Note</label>
+        <textarea asp-for="Note" class="form-control bg-dark text-light border border-secondary rounded shadow-input"></textarea>
+        <span asp-validation-for="Note" class="text-danger"></span>
+    </div>
+
+    <div class="form-group mb-3">
+        <button type="submit" class="btn btn-success btn-gradient w-100 shadow-button">Save</button>
+    </div>
+
+    <div class="form-group mb-3">
+        <a asp-action="Index" class="btn btn-secondary w-100 shadow-button">Cancel</a>
+    </div>
+</form>
+
+    <style>
+
+
+        h2 {
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 20px;
+            font-size: 1.5rem; /* Smaller header font */
+        }
+
+        /* Form container styles */
+        .form-container {
+            background: linear-gradient(145deg, #1a1a1a, #333333);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+        }
+
+        /* Input fields and select styles with shadows for 3D effect */
+        .form-control {
+            background-color: #2d2d2d;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 10px;
+            padding: 5px;
+            font-size: 0.875rem; /* Smaller font size for form inputs */
+            transition: box-shadow 0.3s ease-in-out;
+        }
+
+        .form-control:focus {
+            border-color: #4e73df;
+            box-shadow: 0 0 8px rgba(78, 115, 223, 0.5);
+        }
+
+        /* 3D shadow effect for inputs */
+        .shadow-input {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Button Styles with 3D hover effect */
+        .btn {
+            font-weight: 600;
+            border-radius: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-success {
+            background-color: #28a745;
+            border: none;
+            transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+        }
+
+        .btn-success:hover {
+            background-color: #218838;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            border: none;
+            transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+        }
+
+        .btn-secondary:hover {
+            background-color: #5a6268;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Validation Text */
+        .text-danger {
+            font-size: 0.875rem;
+            color: #ff6f61; /* A more visually appealing red */
+        }
+
+        /* Padding for button hover */
+        .py-3 {
+            padding: 15px;
+        }
+    </style>

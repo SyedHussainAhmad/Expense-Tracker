@@ -1,0 +1,64 @@
+﻿@{
+    ViewData["Title"] = "Search";
+}
+
+<div style="margin-top:2em; display:flex; align-items:center; justify-content:center;">
+    <form id="searchForm" class="d-flex mx-3 align-items-center" style="max-width: 600px; gap: 10px;">
+        <div class="input-group" style="flex: 1;">
+            <span class="input-group-text bg-light border-0" style="border-radius: 50px 0 0 50px;">
+                <i class="bi bi-search"></i>
+            </span>
+            <input type="text" id="layoutKeyword" name="keyword" class="form-control border-0"
+                   placeholder="Search..." aria-label="Search"
+                   style="border-radius: 0 50px 50px 0; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+        </div>
+        <select id="layoutSearchType" name="searchType" class="form-select"
+                style="width: 160px; border-radius: 50px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+            <option value="Category">Category</option>
+            <option value="Expense">Expense</option>
+        </select>
+        <button type="submit" id="searchButton" class="btn btn-primary btn-gradient"
+                style="border-radius: 50px; padding: 0.5rem 1.5rem; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);">
+            <i class="bi bi-arrow-right"></i> Search
+        </button>
+    </form>
+</div>
+
+<h2>Search Results</h2>
+<div id="searchResultsContainer">
+    @if (ViewBag.Type == "Expense")
+    {
+        <partial name="_SearchResults_Expense" model="Model" />
+    }
+    else if (ViewBag.Type == "Category")
+    {
+        <partial name="_SearchResults_Category" model="Model" />
+    }
+</div>
+
+@section Scripts {
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function () {
+            $("#searchForm").on("submit", function (e) {
+                e.preventDefault(); // Prevent default form submission
+
+                const keyword = $("#layoutKeyword").val();
+                const searchType = $("#layoutSearchType").val();
+                const url = "/Search/Search";
+
+                $.ajax({
+                    url: url,
+                    type: "POST",
+                    data: { keyword: keyword, searchType: searchType },
+                    success: function (data) {
+                        $("#searchResultsContainer").html(data); // Populate results
+                    },
+                    error: function () {
+                        alert("An error occurred while fetching search results.");
+                    }
+                });
+            });
+        });
+    </script>
+}
