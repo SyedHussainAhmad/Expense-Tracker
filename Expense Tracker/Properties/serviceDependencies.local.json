@@ -1,8 +1,3 @@
-{
-  "dependencies": {
-    "mssql1": {
-      "type": "mssql.local",
-      "connectionId": "ConnectionStrings:DefaultConnection"
-    }
-  }
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:5b4c456519ab040754ceaf0fdd67bece0713a02f47dce269364b97ab9f1d7134
+size 138
